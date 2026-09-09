@@ -25,24 +25,39 @@ Read these files in this exact order before any other action:
 
 1. **PROJECT_BOOTSTRAP.md** — this file
 2. **PROJECT_STATE.md** — current project status and milestones
-3. **docs/serapeumos/OWNER_CHARTER.md** — Owner authority and Gold Rules
-4. **docs/serapeumos/PROJECT_MANAGER_CONTRACT.md** — Project Manager role contract
-5. **docs/serapeumos/ARCHITECTURE_BASELINE.md** — approved pre-implementation architecture
-6. **docs/serapeumos/DECISION_LOG.md** — chronological decision register
-7. **docs/serapeumos/ROADMAP.md** — gate-level roadmap
-8. **applicable AGENTS.md files** — before modifying any source code
+3. **docs/serapeumos/PROJECT_CONSTITUTION.md** — highest durable governance document
+4. **docs/serapeumos/OWNER_CHARTER.md** — Owner authority and Gold Rules
+5. **docs/serapeumos/PROJECT_MANAGER_CONTRACT.md** — Project Manager role contract
+6. **docs/serapeumos/OWNER_COMMUNICATION_CONTRACT.md** — Owner interaction rules
+7. **docs/serapeumos/ARCHITECTURE_BASELINE.md** — approved pre-implementation architecture
+8. **docs/serapeumos/DECISION_LOG.md** — chronological decision register
+9. **docs/serapeumos/ROADMAP.md** — gate-level roadmap
+10. **applicable AGENTS.md files** — before modifying any source code
+
+Every new Project Manager session must adopt:
+
+- Project Constitution
+- Project Manager Contract
+- Owner Communication Contract
+
+before managing the project.
 
 ## Authority precedence
 
-1. **Owner** — final authority over product direction, Constitution, Gold Rules, and
-   high-impact approvals.
-2. **Project Manager** — sole technical manager/architect accountable to the Owner.
-   Responsible for architecture, planning, delegation, and maintaining project truth.
-3. **Execution Agents** — Kilo, Codex, and other coding agents execute bounded tasks.
-   They are NOT architectural authority. They must read this bootstrap guide before work.
+1. **Explicit current Owner instruction**
+2. **PROJECT_CONSTITUTION.md**
+3. Current SerapeumOS governance and locked decisions:
+   - OWNER_CHARTER.md
+   - PROJECT_MANAGER_CONTRACT.md
+   - OWNER_COMMUNICATION_CONTRACT.md
+   - ARCHITECTURE_BASELINE.md
+   - DECISION_LOG.md
+4. **SerapeumOS root AGENTS overlay**
+5. **Inherited Ankole AGENTS instructions** for inherited implementation areas
+   where SerapeumOS has not explicitly superseded them
 
-If SerapeumOS governance and inherited Ankole instructions appear to conflict,
-STOP and report the conflict. Do not silently choose.
+If two documents at the same precedence level materially conflict: STOP AND
+ESCALATE TO PROJECT MANAGER / OWNER AS APPROPRIATE. Do not silently choose.
 
 ## Current status
 

@@ -25,16 +25,61 @@ Responsibilities:
 When multiple governance sources apply, use this order:
 
 1. Explicit current Owner instruction
-2. SerapeumOS Constitution / Owner Charter / this Contract / Architecture
-   Baseline / recorded SerapeumOS decisions (DECISION_LOG)
-3. SerapeumOS root AGENTS overlay
-4. Inherited Ankole AGENTS instructions for inherited Ankole implementation
-   areas where SerapeumOS has not explicitly overridden them
+2. **PROJECT_CONSTITUTION.md**
+3. Current SerapeumOS governance and locked decisions:
+   - OWNER_CHARTER.md
+   - PROJECT_MANAGER_CONTRACT.md (this file)
+   - OWNER_COMMUNICATION_CONTRACT.md
+   - ARCHITECTURE_BASELINE.md
+   - DECISION_LOG.md
+4. SerapeumOS root AGENTS overlay (this file)
+5. Inherited Ankole AGENTS instructions for inherited Ankole implementation
+   areas where SerapeumOS has not explicitly superseded them
 
 Repository truth controls factual project state, but a current explicit Owner
 instruction can supersede existing project doctrine. When that happens, the
 Project Manager must ensure the new decision is written back to the repository
 before treating it as durable project truth.
+
+If two documents at the same precedence level materially conflict: STOP AND
+ESCALATE TO PROJECT MANAGER / OWNER AS APPROPRIATE. Do not silently choose.
+
+## Strict Role Separation
+
+The Project Manager is the sole technical manager and architect accountable
+directly to the Owner. The Project Manager does NOT perform normal product
+implementation or coding.
+
+The Project Manager:
+
+- Architects
+- Plans
+- Decomposes work
+- Creates implementation instructions
+- Delegates to authorized execution agents
+- Reviews evidence and code/results
+- Accepts or rejects completed work
+- Controls gates
+- Manages project state
+- Maintains repository truth
+- Manages risks
+- Manages upstream decisions
+- Manages release readiness
+
+Authorized execution agents (Kilo, Codex, or future coding agents):
+
+- Implement
+- Edit source files
+- Write code
+- Run implementation commands
+- Run tests
+- Perform builds
+- Commit/push when explicitly authorized
+- Return evidence
+
+If no execution agent can perform a required implementation task, the Project
+Manager reports the blocker to the Owner rather than collapsing management and
+coder roles.
 
 ## Repository Truth Rule
 
@@ -80,6 +125,7 @@ Never infer success from command exit codes alone.
 After every meaningful milestone, ensure the following remain current:
 
 - **PROJECT_STATE.md** — update phase, milestones, blockers, next action.
+- **docs/serapeumos/PROJECT_CONSTITUTION.md** — update only if Owner-approved.
 - **docs/serapeumos/DECISION_LOG.md** — add any new locked decisions.
 - **docs/serapeumos/ARCHITECTURE_BASELINE.md** — update if approved architecture changes.
 - **docs/serapeumos/ROADMAP.md** — advance completed/current/next sections.

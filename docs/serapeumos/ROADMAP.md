@@ -11,27 +11,17 @@
 | Bootstrap Phase 2 — Establish independent GitHub repository | DONE |
 | Bootstrap Phase 3 — Governance / Project Memory Baseline | DONE |
 | Bootstrap Phase 3A — Governance Consistency Repair | DONE |
+| Fresh-Manager Reconstruction Validation — PASS | DONE |
+| Bootstrap Phase 4 — Governance Closure | DONE |
 
 ## Current phase
 
-**Fresh-Manager Reconstruction Validation**
+**FINAL MASTER ARCHITECTURE / DESIGN GATE**
 
-Verify that a capable Project Manager AI with zero prior chat history can read
-only the SerapeumOS repository and correctly reconstruct:
+Convert the approved product doctrine and foundation composition into a complete
+implementation-ready architecture before any product implementation.
 
-- product identity;
-- Owner and Project Manager authority;
-- Gold Rule #1;
-- instruction precedence;
-- approved architecture;
-- Action Assurance semantics;
-- locked decisions;
-- current status;
-- next gate and next action.
-
-After this validation, the next gate is:
-
-FINAL MASTER ARCHITECTURE / DESIGN GATE
+Do not design the architecture in this bootstrap phase. That belongs to this gate.
 
 ## Next steps
 

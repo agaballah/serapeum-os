@@ -189,3 +189,46 @@ sequence ID is the primary ordering key.
   Ankole product releases and creates conflicting authority.
 - **Supersession:** Only through an explicit Owner-approved repository-governance
   decision.
+
+---
+
+## D-017 — Repository reconstruction contract validated
+
+- **Status:** LOCKED
+- **Decision:** A fresh capable Project Manager AI with zero prior SerapeumOS
+  conversation history successfully reconstructed from repository truth:
+  product identity, authority model, Gold Rule #1, instruction precedence,
+  foundation, SerapeumOS-owned domains, Action Assurance semantics, System
+  Evolution, project status, next gate.
+- **Reason:** This validates the repository-as-project-memory requirement
+  established by D-014.
+- **Supersession:** N/A. Future reconstruction failure requires repair/revalidation
+  rather than deletion of this historical validation.
+
+---
+
+## D-018 — Constitution and Owner Communication Contract are first-class governance
+
+- **Status:** LOCKED
+- **Decision:** SerapeumOS maintains dedicated `PROJECT_CONSTITUTION.md` and
+  `OWNER_COMMUNICATION_CONTRACT.md` as mandatory Project Manager bootstrap
+  documents.
+- **Reason:** Constitutional authority and Owner interaction rules must survive
+  individual AI sessions and cannot depend on chat memory.
+- **Supersession:** Only through explicit Owner-approved governance change.
+
+---
+
+## D-019 — Strict Project Manager / Execution Agent role separation
+
+- **Status:** LOCKED
+- **Decision:** The Project Manager does not perform normal product implementation.
+  The Project Manager architects, plans, delegates, reviews, accepts/rejects,
+  and governs. Authorized execution agents implement, edit source, run
+  implementation commands, test, build, and commit/push when authorized.
+  If no execution agent can perform a required implementation task, the Project
+  Manager reports the blocker to the Owner rather than silently collapsing
+  management and coder roles.
+- **Reason:** Separation preserves architecture fidelity, independent review,
+  accountability, and auditability.
+- **Supersession:** Only through explicit Owner-approved governance change.

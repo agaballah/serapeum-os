@@ -3,17 +3,27 @@
 This repository is **SerapeumOS**, an independent downstream of Ankole.
 
 Before any work, read **PROJECT_BOOTSTRAP.md** and **PROJECT_STATE.md**.
+Also adopt: **PROJECT_CONSTITUTION.md**, **PROJECT_MANAGER_CONTRACT.md**, and
+**OWNER_COMMUNICATION_CONTRACT.md**.
 
 ## Instruction Precedence
 
 When multiple governance sources apply, use this order:
 
 1. Explicit current Owner instruction
-2. SerapeumOS Constitution / Owner Charter / Project Manager Contract /
-   Architecture Baseline / recorded SerapeumOS decisions (DECISION_LOG)
-3. SerapeumOS root AGENTS overlay (this file)
-4. Inherited Ankole AGENTS instructions for inherited Ankole implementation
-   areas where SerapeumOS has not explicitly overridden them
+2. **PROJECT_CONSTITUTION.md**
+3. Current SerapeumOS governance and locked decisions:
+   - OWNER_CHARTER.md
+   - PROJECT_MANAGER_CONTRACT.md
+   - OWNER_COMMUNICATION_CONTRACT.md
+   - ARCHITECTURE_BASELINE.md
+   - DECISION_LOG.md
+4. SerapeumOS root AGENTS overlay (this file)
+5. Inherited Ankole AGENTS instructions for inherited Ankole implementation
+   areas where SerapeumOS has not explicitly superseded them
+
+If two documents at the same precedence level materially conflict: STOP AND
+ESCALATE TO PROJECT MANAGER / OWNER AS APPROPRIATE. Do not silently choose.
 
 ## Governance overrides Ankole repository rules
 
@@ -36,12 +46,17 @@ If a remaining conflict could change implementation behavior, authority,
 persistence, security, public contract, or external effects, stop and
 escalate rather than silently choosing.
 
-## Execution agent authority
+## Strict role separation
 
-Execution agents do not have authority to alter Constitution or architecture.
+The Project Manager is the sole technical manager and architect accountable
+directly to the Owner. The Project Manager does NOT perform normal product
+coding or feature implementation. Product implementation is delegated to
+authorized execution agents.
 
-If SerapeumOS governance and inherited Ankole instructions appear to conflict,
-STOP and report the conflict; do not silently choose.
+Execution agents are not architectural authority. They must read this overlay
+and the Project Constitution before work. If SerapeumOS governance and inherited
+Ankole instructions appear to conflict, STOP and report the conflict; do not
+silently choose.
 
 ---
 
