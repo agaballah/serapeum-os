@@ -1,3 +1,16 @@
+# SerapeumOS
+
+SerapeumOS is an independent public open-source downstream project currently
+based on Ankole v1.0.4-rc.1.
+
+Qualified foundation: `7434d934315881438d4788d41228ba31d2f26fbb`
+
+Project status: pre-implementation / architecture and governance bootstrap.
+
+The inherited Ankole README continues below for foundation documentation.
+
+---
+
 # Ankole, the enterprise Agent Harness with a Company Brain
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)

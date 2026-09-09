@@ -1,3 +1,18 @@
+# SerapeumOS Project Overlay
+
+This repository is **SerapeumOS**, an independent downstream of Ankole.
+
+Before any work, read **PROJECT_BOOTSTRAP.md** and **PROJECT_STATE.md**.
+
+SerapeumOS governance is authoritative for product/project decisions.
+Existing Ankole AGENTS instructions remain binding for inherited Ankole code.
+If SerapeumOS governance and inherited Ankole instructions appear to conflict,
+STOP and report the conflict; do not silently choose.
+
+Execution agents do not have authority to alter Constitution or architecture.
+
+---
+
 # Ankole Agent Guidelines
 
 Ankole is a general-purpose Agent Operating System for long-running digital work. It can serve enterprises, teams, and one-person companies.
