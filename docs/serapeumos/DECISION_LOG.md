@@ -96,15 +96,35 @@ sequence ID is the primary ordering key.
 
 ---
 
-## D-009 — SerapeumOS-owned domains
+## D-009 — SerapeumOS directly owns four differentiated domains
 
 - **Status:** LOCKED
-- **Decision:** SerapeumOS owns the Company Domain, System Evolution, Action
-  Assurance, and Owner Governance layers. Everything else is inherited from
-  Ankole.
+- **Decision:** SerapeumOS directly owns its differentiated product/governance
+  domains: Company Domain, System Evolution, Action Assurance, and Owner
+  Governance.
 - **Reason:** These four layers express the product differentiation and
-  are not provided by Ankole in the required form.
+  are not provided by Ankole in the required form. Other capabilities may come
+  from Ankole or from other supporting OSS components selected through bounded
+  integrations; not every non-SerapeumOS capability must come from Ankole.
 - **Supersession:** Only via architectural decision gate.
+
+---
+
+## D-016 — SerapeumOS governance precedence over inherited repository rules
+
+- **Status:** LOCKED
+- **Decision:** SerapeumOS governance controls SerapeumOS project/repository
+  management. Inherited Ankole engineering instructions remain applicable to
+  inherited Ankole implementation areas except where explicitly superseded by
+  SerapeumOS governance.
+  Ankole-specific changelog/version/release requirements do not automatically
+  apply to SerapeumOS-only governance/project-memory commits.
+- **Reason:** SerapeumOS is an independent downstream product. Automatically
+  applying upstream Ankole repository-release semantics to all SerapeumOS
+  commits would incorrectly make SerapeumOS governance changes look like
+  Ankole product releases and creates conflicting authority.
+- **Supersession:** Only through an explicit Owner-approved repository-governance
+  decision.
 
 ---
 

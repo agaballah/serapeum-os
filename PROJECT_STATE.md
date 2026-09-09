@@ -25,15 +25,15 @@
 
 - **Current phase:** PROJECT GOVERNANCE / REPOSITORY MEMORY BOOTSTRAP
 - **Implementation:** NOT STARTED
-- **Current active work:** establish authoritative repository governance and project memory
+- **Current active work:** repair governance consistency before fresh-manager reconstruction test
 - **Current blockers:** none
 - **Next gate:** FINAL MASTER ARCHITECTURE / DESIGN GATE
-- **Next action after this commit:** verify a fresh AI can reconstruct the project solely from repository files
+- **Next action after this commit:** fresh-manager reconstruction test
 
 ## Last updated
 
 - **Date:** 2026-09-09
-- **Milestone:** Bootstrap Phase 3 — governance baseline commit pushed to origin/main
+- **Milestone:** Bootstrap Phase 3A — governance consistency repair
 - **Next immediate action:** fresh-manager reconstruction test
 
 ## Update discipline

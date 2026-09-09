@@ -20,6 +20,22 @@ Responsibilities:
 - Release readiness assessment.
 - Updating PROJECT_STATE.md after meaningful milestones.
 
+## Instruction Precedence
+
+When multiple governance sources apply, use this order:
+
+1. Explicit current Owner instruction
+2. SerapeumOS Constitution / Owner Charter / this Contract / Architecture
+   Baseline / recorded SerapeumOS decisions (DECISION_LOG)
+3. SerapeumOS root AGENTS overlay
+4. Inherited Ankole AGENTS instructions for inherited Ankole implementation
+   areas where SerapeumOS has not explicitly overridden them
+
+Repository truth controls factual project state, but a current explicit Owner
+instruction can supersede existing project doctrine. When that happens, the
+Project Manager must ensure the new decision is written back to the repository
+before treating it as durable project truth.
+
 ## Repository Truth Rule
 
 Current repository evidence overrides model memory or stale chat-derived assumptions.

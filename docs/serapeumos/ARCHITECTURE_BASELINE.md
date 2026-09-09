@@ -93,14 +93,41 @@ repository governance, core source architecture, or database schema.
 
 ## Action Assurance vs AuthZ
 
-- **AuthZ** (Authorization) — determines whether an Agent is permitted to perform
-  an action. Owned by Ankole's Principal/AuthZ subsystem.
-- **Action Assurance** — a SerapeumOS-owned layer that validates outcomes, detects
-  policy violations, and enforces post-execution checks beyond simple permission
-  grants.
+- **AuthZ** (Authorization) — determines whether a Principal/Agent is permitted
+  to perform a class of action. Owned by Ankole's Principal/AuthZ subsystem.
+  AuthZ answers: *Is this Principal/Agent permitted to perform this class of action?*
 
-Action Assurance sits above AuthZ and adds behavioral validation that AuthZ alone
-does not provide.
+- **Action Assurance** — a SerapeumOS-owned governed lifecycle layer that wraps
+  around AuthZ. It does NOT replace or duplicate AuthZ. AuthZ remains the
+  permission-enforcement authority.
+
+  Action Assurance answers these questions in order:
+
+  1. *Is this exact proposed action sufficiently supported by evidence?*
+  2. *Is it appropriately risk-classified?*
+  3. *Does it require review, and has that review been completed?*
+  4. *Has it been approved where approval is required?*
+  5. *Does the execution match the approved proposal and its parameters exactly?*
+  6. *What execution receipt or outcome was produced?*
+
+  The governed lifecycle is:
+
+  ```
+  Action Proposal
+    → evidence
+    → risk classification
+    → required review
+    → approval where required
+    → exact action/parameter binding
+    → execution
+    → execution receipt / outcome
+  ```
+
+  Action Assurance is NOT a second AuthZ engine. It enforces the governed
+  lifecycle around actions that AuthZ has already permitted.
+
+  Action Assurance sits above AuthZ and adds lifecycle governance that AuthZ
+  alone does not provide.
 
 ## Foundation: Ankole
 
@@ -117,12 +144,21 @@ low-level foundation. It provides:
 - Agent Computer (execution runtime)
 - Generic execution infrastructure
 
-SerapeumOS owns these differentiated layers instead:
+SerapeumOS directly owns its differentiated product/governance domains:
 
 - **Company Domain** — organizational structure, roles, goals, tasks.
 - **System Evolution** — learning, research, strategy evaluation, safe evolution.
-- **Action Assurance** — outcome validation and behavioral enforcement.
+- **Action Assurance** — governed lifecycle enforcement across the full action chain.
 - **Owner Governance** — constitutional rules and high-impact decision gates.
+
+Ankole remains the primary low-level foundation for the capabilities selected
+during the Foundation Composition Gate.
+
+Other supporting OSS components may be reused through bounded integrations
+where selected by architecture.
+
+SerapeumOS must not rebuild an existing correct Ankole capability without an
+evidenced architectural reason.
 
 ## Reference architectures (not parallel runtimes)
 

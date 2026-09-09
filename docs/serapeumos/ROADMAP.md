@@ -9,24 +9,26 @@
 | Foundation Composition Gate — Ankole selected | PASS |
 | Bootstrap Phase 1 — Clone qualified foundation, set up local repo | DONE |
 | Bootstrap Phase 2 — Establish independent GitHub repository | DONE |
+| Bootstrap Phase 3 — Governance / Project Memory Baseline | DONE |
 
 ## Current phase
 
-**Bootstrap Phase 3 — Governance / Project Memory Baseline**
+**Bootstrap Phase 3A — Governance Consistency Repair**
 
-Establish authoritative repository governance and project memory so that a
-fresh capable AI can reconstruct the project solely from repository files.
+Correct three semantic defects found in the Phase 3 governance baseline:
+Action Assurance semantics, SerapeumOS-vs-Ankole governance precedence,
+and D-009 over-breadth.
 
 ## Next steps
 
 1. Fresh-manager reconstruction test — verify a new AI can read only the
-   repository and reconstruct project understanding.
+    repository and reconstruct project understanding.
 2. Final Master Architecture / Design Gate — detailed architecture, APIs,
-   data models, and implementation plan.
+    data models, and implementation plan.
 3. Implementation planning — decompose architecture into implementable tasks.
 4. Controlled implementation — execute tasks under Project Manager supervision.
 5. Qualification and testing — verify each implemented component against
-   architectural contracts.
+    architectural contracts.
 6. Release preparation — bring the system to a verifiable release state.
 
 ## Notes

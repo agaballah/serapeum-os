@@ -4,12 +4,44 @@ This repository is **SerapeumOS**, an independent downstream of Ankole.
 
 Before any work, read **PROJECT_BOOTSTRAP.md** and **PROJECT_STATE.md**.
 
-SerapeumOS governance is authoritative for product/project decisions.
-Existing Ankole AGENTS instructions remain binding for inherited Ankole code.
-If SerapeumOS governance and inherited Ankole instructions appear to conflict,
-STOP and report the conflict; do not silently choose.
+## Instruction Precedence
+
+When multiple governance sources apply, use this order:
+
+1. Explicit current Owner instruction
+2. SerapeumOS Constitution / Owner Charter / Project Manager Contract /
+   Architecture Baseline / recorded SerapeumOS decisions (DECISION_LOG)
+3. SerapeumOS root AGENTS overlay (this file)
+4. Inherited Ankole AGENTS instructions for inherited Ankole implementation
+   areas where SerapeumOS has not explicitly overridden them
+
+## Governance overrides Ankole repository rules
+
+SerapeumOS project/repository governance overrides inherited Ankole
+repository-management rules where the two differ.
+
+Inherited Ankole engineering rules remain binding for inherited Ankole source
+unless SerapeumOS explicitly supersedes a rule.
+
+Ankole changelog/version/release rules do NOT automatically apply to
+SerapeumOS-only governance/project-memory commits.
+Do not add an Ankole CHANGELOG.md version merely for a SerapeumOS-only
+governance commit.
+
+When a future change modifies inherited Ankole product/source behavior,
+the Project Manager must determine the appropriate SerapeumOS changelog/
+release treatment before the change is committed.
+
+If a remaining conflict could change implementation behavior, authority,
+persistence, security, public contract, or external effects, stop and
+escalate rather than silently choosing.
+
+## Execution agent authority
 
 Execution agents do not have authority to alter Constitution or architecture.
+
+If SerapeumOS governance and inherited Ankole instructions appear to conflict,
+STOP and report the conflict; do not silently choose.
 
 ---
 
