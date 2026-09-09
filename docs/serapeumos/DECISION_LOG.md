@@ -110,24 +110,6 @@ sequence ID is the primary ordering key.
 
 ---
 
-## D-016 — SerapeumOS governance precedence over inherited repository rules
-
-- **Status:** LOCKED
-- **Decision:** SerapeumOS governance controls SerapeumOS project/repository
-  management. Inherited Ankole engineering instructions remain applicable to
-  inherited Ankole implementation areas except where explicitly superseded by
-  SerapeumOS governance.
-  Ankole-specific changelog/version/release requirements do not automatically
-  apply to SerapeumOS-only governance/project-memory commits.
-- **Reason:** SerapeumOS is an independent downstream product. Automatically
-  applying upstream Ankole repository-release semantics to all SerapeumOS
-  commits would incorrectly make SerapeumOS governance changes look like
-  Ankole product releases and creates conflicting authority.
-- **Supersession:** Only through an explicit Owner-approved repository-governance
-  decision.
-
----
-
 ## D-010 — Product name
 
 - **Status:** LOCKED
@@ -189,3 +171,21 @@ sequence ID is the primary ordering key.
   Toolchains are installed only when an approved task proves they are required.
 - **Supersession:** Can be changed by the Project Manager without Owner
   approval, as long as the change does not violate Gold Rule #1.
+
+---
+
+## D-016 — SerapeumOS governance precedence over inherited repository rules
+
+- **Status:** LOCKED
+- **Decision:** SerapeumOS governance controls SerapeumOS project/repository
+  management. Inherited Ankole engineering instructions remain applicable to
+  inherited Ankole implementation areas except where explicitly superseded by
+  SerapeumOS governance.
+  Ankole-specific changelog/version/release requirements do not automatically
+  apply to SerapeumOS-only governance/project-memory commits.
+- **Reason:** SerapeumOS is an independent downstream product. Automatically
+  applying upstream Ankole repository-release semantics to all SerapeumOS
+  commits would incorrectly make SerapeumOS governance changes look like
+  Ankole product releases and creates conflicting authority.
+- **Supersession:** Only through an explicit Owner-approved repository-governance
+  decision.

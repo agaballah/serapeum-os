@@ -10,14 +10,28 @@
 | Bootstrap Phase 1 — Clone qualified foundation, set up local repo | DONE |
 | Bootstrap Phase 2 — Establish independent GitHub repository | DONE |
 | Bootstrap Phase 3 — Governance / Project Memory Baseline | DONE |
+| Bootstrap Phase 3A — Governance Consistency Repair | DONE |
 
 ## Current phase
 
-**Bootstrap Phase 3A — Governance Consistency Repair**
+**Fresh-Manager Reconstruction Validation**
 
-Correct three semantic defects found in the Phase 3 governance baseline:
-Action Assurance semantics, SerapeumOS-vs-Ankole governance precedence,
-and D-009 over-breadth.
+Verify that a capable Project Manager AI with zero prior chat history can read
+only the SerapeumOS repository and correctly reconstruct:
+
+- product identity;
+- Owner and Project Manager authority;
+- Gold Rule #1;
+- instruction precedence;
+- approved architecture;
+- Action Assurance semantics;
+- locked decisions;
+- current status;
+- next gate and next action.
+
+After this validation, the next gate is:
+
+FINAL MASTER ARCHITECTURE / DESIGN GATE
 
 ## Next steps
 
