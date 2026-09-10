@@ -49,9 +49,13 @@ A fresh agent reads each classification in context; no single axis dominates.
 
 - **MA-01 → MA-20:** COMPLETE / PASS
 - **Final Cross-Domain Consistency Audit:** COMPLETE — MA-01→MA-20 domain architecture consistency PASS; documentation-synchronization blockers identified by the audit were handled through ARCH-SYNC-01 / repository persistence and accepted by PM
-- **Final Master Architecture Gate:** PENDING — Repository Persistence / Verification PASS / ACCEPTED; Fresh-Agent Reconstruction Validation next prerequisite
+- **Repository Persistence / Verification:** PASS / ACCEPTED
+- **Fresh-Agent Reconstruction Validation:** COMPLETE / PASS
+- **Final Master Architecture Gate:** PASS / ACCEPTED
+- **Implementation Decomposition:** NEXT
 - **Implementation:** NOT STARTED
 - **Runtime prototypes:** PAUSED
+- **MA-20 executable qualification:** NOT RUN
 
 ## Foundation
 
@@ -119,6 +123,11 @@ See individual MA documents for domain-specific artifact requirements.
 
 ## Implementation prohibition
 
-No product implementation begins until the Final Master Architecture Gate
-passes. ARCH-SYNC-01 documentation synchronization is a prerequisite for
-that gate, not implementation.
+No uncontrolled/direct product implementation begins until the Final Master
+Architecture Gate passes and Implementation Decomposition is authorized.
+Final Master Architecture Gate PASS authorizes Implementation Decomposition —
+the process of decomposing the locked architecture into bounded, authorized
+implementation tasks — but does NOT itself authorize coding. Product
+implementation begins only through PM-authorized bounded implementation tasks
+after decomposition. ARCH-SYNC-01 documentation synchronization was a
+prerequisite for the gate, not implementation.
