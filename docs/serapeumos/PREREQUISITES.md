@@ -59,7 +59,6 @@ prerequisites for `TRUSTED_CORE_ONLY`.
 | Sufficient physical RAM for guest + host safety reserve | Exact minimum determined by MA-20 Qualification Policy |
 | Sufficient logical processors for guest allocation | Exact minimum determined by MA-20 Qualification Policy |
 | Capacity for immutable appliance image + persistent `/agents` disk | Exact sizes determined by MA-20 Qualification Policy |
-| Temporary development inference tool permitted during build/validation only | Must remain replaceable by design (D-074) |
 
 ### C. Capability-dependent features
 
