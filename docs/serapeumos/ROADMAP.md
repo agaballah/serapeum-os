@@ -13,27 +13,33 @@
 | Bootstrap Phase 3A — Governance Consistency Repair | DONE |
 | Fresh-Manager Reconstruction Validation — PASS | DONE |
 | Bootstrap Phase 4 — Governance Closure | DONE |
+| MA-01 → MA-20 — Architecture Closure | COMPLETE / PASS |
+| Final Cross-Domain Consistency Audit | COMPLETE / PASS |
 
 ## Current phase
 
 **FINAL MASTER ARCHITECTURE / DESIGN GATE**
 
-Convert the approved product doctrine and foundation composition into a complete
-implementation-ready architecture before any product implementation.
+Current task: ARCH-SYNC-01 — documentation/governance synchronization.
 
-Do not design the architecture in this bootstrap phase. That belongs to this gate.
+Synchronize repository-native master/governance documentation with the
+already-approved MA-01→MA-20 architecture. Persist closed MA documents.
+Repair stale current-state wording. Normalize Gold Rule #1 scope.
+
+After ARCH-SYNC-01 passes, the next step is Fresh-Agent Reconstruction
+Validation, then the Final Master Architecture Gate.
 
 ## Next steps
 
-1. Fresh-manager reconstruction test — verify a new AI can read only the
-    repository and reconstruct project understanding.
-2. Final Master Architecture / Design Gate — detailed architecture, APIs,
-    data models, and implementation plan.
-3. Implementation planning — decompose architecture into implementable tasks.
-4. Controlled implementation — execute tasks under Project Manager supervision.
-5. Qualification and testing — verify each implemented component against
-    architectural contracts.
-6. Release preparation — bring the system to a verifiable release state.
+1. ARCH-SYNC-01 — documentation/governance synchronization (in progress)
+2. Fresh-Agent Reconstruction Validation — verify a new AI can reconstruct
+   the project solely from repository files
+3. Final Master Architecture / Design Gate — full gate review and PASS
+4. Implementation Decomposition — decompose architecture into bounded tasks
+5. Kilo execution-agent activation — authorized bounded task execution
+6. Controlled implementation — execute tasks under PM supervision
+7. MA-20 executable qualification — empirical proof of production fitness
+8. Release preparation — bring system to verifiable release state
 
 ## Notes
 

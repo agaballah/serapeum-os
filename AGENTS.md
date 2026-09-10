@@ -16,8 +16,10 @@ When multiple governance sources apply, use this order:
    - OWNER_CHARTER.md
    - PROJECT_MANAGER_CONTRACT.md
    - OWNER_COMMUNICATION_CONTRACT.md
+   - DOCTRINE.md
    - ARCHITECTURE_BASELINE.md
    - DECISION_LOG.md
+   - Closed MA documents (`docs/serapeumos/architecture/01_*.md` through `20_*.md`)
 4. SerapeumOS root AGENTS overlay (this file)
 5. Inherited Ankole AGENTS instructions for inherited Ankole implementation
    areas where SerapeumOS has not explicitly superseded them
@@ -53,10 +55,10 @@ directly to the Owner. The Project Manager does NOT perform normal product
 coding or feature implementation. Product implementation is delegated to
 authorized execution agents.
 
-Execution agents are not architectural authority. They must read this overlay
-and the Project Constitution before work. If SerapeumOS governance and inherited
-Ankole instructions appear to conflict, STOP and report the conflict; do not
-silently choose.
+Execution agents are not architectural authority. They must read this overlay,
+the Project Constitution, and the Execution Agent Contract before work. If
+SerapeumOS governance and inherited Ankole instructions appear to conflict,
+STOP and report the conflict; do not silently choose.
 
 ---
 

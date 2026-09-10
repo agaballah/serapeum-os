@@ -73,9 +73,14 @@ Chat history and model memory are ephemeral.
 
 The final SerapeumOS system must be:
 
-1. **100% OPEN SOURCE** — no proprietary code locks or license restrictions on
-   the final system.
-2. **100% LOCAL** — no required cloud infrastructure in the final system.
+1. **100% OPEN SOURCE** — SerapeumOS-owned, required, distributed, and managed
+   production components **above the host substrate** must be open source with
+   no proprietary code locks or license restrictions on the final product.
+2. **100% LOCAL** — no required cloud infrastructure in the final product.
+
+The **host operating system / native host substrate** is an external prerequisite
+and does not itself have to be open source. Windows may therefore remain a
+supported host target even though it is proprietary.
 
 NaraRouter is permitted temporarily during development/validation only. It must
 remain replaceable by local AI without redesigning Company, Agents, Brain, Tasks,
@@ -169,10 +174,14 @@ Never infer success from command exit codes alone.
 
 SerapeumOS is an independent public downstream of Ankole. It is NOT a GitHub fork.
 
-Qualified baseline:
+**Locked foundation baseline:**
 
 - **Ankole v1.0.4-rc.1**
 - **Commit:** `7434d934315881438d4788d41228ba31d2f26fbb`
+
+Production admission of the foundation is subject to MA-19 provenance verification
+and applicable MA-20 executable qualification. The locked baseline is the
+architecture-selected foundation; it is not yet empirically release-qualified.
 
 Preserve low-diff upstream maintainability. Upstream changes must pass controlled
 intake/revalidation rather than being merged automatically.

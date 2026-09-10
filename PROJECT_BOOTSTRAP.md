@@ -23,22 +23,29 @@ If an important decision exists only in chat, it is not yet durable project trut
 
 Read these files in this exact order before any other action:
 
-1. **PROJECT_BOOTSTRAP.md** — this file
-2. **PROJECT_STATE.md** — current project status and milestones
-3. **docs/serapeumos/PROJECT_CONSTITUTION.md** — highest durable governance document
-4. **docs/serapeumos/OWNER_CHARTER.md** — Owner authority and Gold Rules
-5. **docs/serapeumos/PROJECT_MANAGER_CONTRACT.md** — Project Manager role contract
-6. **docs/serapeumos/OWNER_COMMUNICATION_CONTRACT.md** — Owner interaction rules
-7. **docs/serapeumos/ARCHITECTURE_BASELINE.md** — approved pre-implementation architecture
-8. **docs/serapeumos/DECISION_LOG.md** — chronological decision register
-9. **docs/serapeumos/ROADMAP.md** — gate-level roadmap
-10. **applicable AGENTS.md files** — before modifying any source code
+1. **AGENTS.md** — SerapeumOS project overlay and instruction precedence
+2. **PROJECT_BOOTSTRAP.md** — this file
+3. **PROJECT_STATE.md** — current project status and milestones
+4. **docs/serapeumos/PROJECT_CONSTITUTION.md** — highest durable governance document
+5. **docs/serapeumos/OWNER_CHARTER.md** — Owner authority and Gold Rules
+6. **docs/serapeumos/PROJECT_MANAGER_CONTRACT.md** — Project Manager role contract
+7. **docs/serapeumos/OWNER_COMMUNICATION_CONTRACT.md** — Owner interaction rules
+8. **docs/serapeumos/DOCTRINE.md** — normative product doctrine
+9. **docs/serapeumos/architecture/00_MASTER_ARCHITECTURE.md** — architecture index and crosswalk
+10. **docs/serapeumos/architecture/01_HOST_INTEGRITY_AND_TCB.md** through `20_QUALIFICATION_RELEASE_GATES.md` — closed MA documents
+11. **docs/serapeumos/DECISION_LOG.md** — chronological decision register (D-001 through D-265)
+12. **docs/serapeumos/ROADMAP.md** — gate-level roadmap
+13. **docs/serapeumos/agent/EXECUTION_AGENT_CONTRACT.md** — execution agent role contract
+14. **docs/serapeumos/agent/EVIDENCE_AND_COMPLETION_CONTRACT.md** — evidence standards
+15. **applicable AGENTS.md files** — before modifying any source code
 
 Every new Project Manager session must adopt:
 
 - Project Constitution
 - Project Manager Contract
 - Owner Communication Contract
+- Execution Agent Contract
+- Evidence and Completion Contract
 
 before managing the project.
 
