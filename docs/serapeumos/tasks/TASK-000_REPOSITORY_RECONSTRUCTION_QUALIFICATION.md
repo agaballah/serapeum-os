@@ -68,6 +68,12 @@ FORBIDDEN:
 - Do not claim: empirical qualification of any host, backend, or runtime
 - Do not treat: inherited container/bubblewrap implementation as the final hard
   security boundary — document only what is locked by MA-01/MA-06
+- Do not characterize inherited Ankole bubblewrap/container mechanisms as
+  "development/tooling only" unless an authoritative source specifically says so;
+  MA-01 treats inherited bubblewrap as an inner defense-in-depth mechanism while
+  the locked outer boundary is the hard Agent Appliance boundary defined by MA-01
+- Do not select or prescribe a specific hypervisor/backend for the hard Agent
+  Appliance boundary
 - Do not invent: new architecture decisions beyond what is documented in MA-01
   through MA-20
 - Do not read: untracked files as repository authority; untracked files are NOT
@@ -94,8 +100,11 @@ REQUIRED BEHAVIOUR:
 ACCEPTANCE CRITERIA:
 - [ ] Product identity correctly stated (name, repo, local path, Git relationship,
       foundation)
-- [ ] Authority model correctly described (Owner > Constitution > governance docs
-      > AGENTS overlay > inherited Ankole)
+- [ ] Authority model correctly described (explicit current Owner instruction = highest authority;
+      PROJECT_CONSTITUTION = highest durable authority below Owner; Project Manager = sole
+      technical manager/architect accountable to Owner; execution/coding/research agents =
+      bounded workers, not architectural authority; governance/document instruction precedence
+      correctly reconstructed)
 - [ ] Doctrine correctly stated (Gold Rule #1 with host-substrate distinction,
       NaraRouter limitation, platform-neutral core, Agent ≠ Model ≠ Worker
       ≠ Appliance ≠ Process, five state domains)
