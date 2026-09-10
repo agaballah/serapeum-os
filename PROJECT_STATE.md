@@ -26,25 +26,22 @@
 - **Current phase:** FINAL MASTER ARCHITECTURE / DESIGN GATE
 - **Implementation:** NOT STARTED
 - **Current active work:** ARCH-SYNC-01 — documentation/governance synchronization
-  following complete MA-01→MA-20 architecture closure and cross-domain consistency audit
-- **Current blockers:** none
+  under Project Manager review
 - **Next gate:** FINAL MASTER ARCHITECTURE / DESIGN GATE
-- **Next action after this commit:** Fresh-Agent Reconstruction Validation
+- **Next action after PM acceptance of ARCH-SYNC-01:** repository persistence /
+  verification
+- **Fresh-Agent Reconstruction Validation:** BLOCKED until ARCH-SYNC-01 passes
+  and repository persistence / verification completes
 
 ## Last updated
 
 - **Date:** 2026-09-10
-- **Milestone:** ARCH-SYNC-01 — governance synchronization in progress
-- **Next immediate action:** fresh-agent reconstruction validation
+- **Milestone:** ARCH-SYNC-01 — awaiting PM verdict
+- **Next immediate action:** Project Manager review of corrective commit
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
 is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE / PASS.
-
-## Update discipline
-
-This file must be updated after every meaningful milestone. A meaningful milestone
-is any completed gate, phase transition, implementation milestone, or change to
-current blockers or phase status.
+ARCH-SYNC-01 is pending PM acceptance.
 
 ## Update discipline
 

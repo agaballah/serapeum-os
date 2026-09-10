@@ -25,16 +25,22 @@ to the Owner. The Project Manager is responsible for:
 
 ## Gold Rule #1
 
-The final SerapeumOS system must be:
+SerapeumOS-owned, required, distributed, and managed production components
+above the host substrate must be:
 
-1. **100% OPEN SOURCE** — no proprietary code locks or license restrictions on the
-   final system.
-2. **100% LOCAL** — no required cloud infrastructure in the final system.
+1. **100% OPEN SOURCE** — no proprietary code locks or license restrictions on
+   the final product.
+2. **100% LOCAL** — no required cloud infrastructure in the final product.
+
+The **host operating system / native host substrate** is an external prerequisite
+and does not itself have to be open source. Windows may therefore remain a
+supported host target even though it is proprietary.
 
 The only temporary external inference dependency explicitly permitted during
 development/validation is NaraRouter, using the Owner's temporary token allowance.
 NaraRouter must remain replaceable by local AI without redesigning Company, Agents,
-Brain, Tasks, Governance, System Evolution, or Action Assurance.
+Brain, Tasks, Governance, System Evolution, or Action Assurance. It is **not** a
+final production dependency.
 
 No other cloud service, hosted database, proprietary control plane, hosted queue,
 SaaS memory, or mandatory Internet service may become a required final dependency

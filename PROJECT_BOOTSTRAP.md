@@ -5,7 +5,7 @@
 This repository is **SerapeumOS**, an independent public open-source downstream project
 currently based on **Ankole v1.0.4-rc.1**.
 
-**Qualified foundation commit:** `7434d934315881438d4788d41228ba31d2f26fbb`
+**Locked foundation baseline:** `7434d934315881438d4788d41228ba31d2f26fbb`
 
 **GitHub:** https://github.com/agaballah/serapeum-os
 
@@ -38,6 +38,7 @@ Read these files in this exact order before any other action:
 13. **docs/serapeumos/agent/EXECUTION_AGENT_CONTRACT.md** — execution agent role contract
 14. **docs/serapeumos/agent/EVIDENCE_AND_COMPLETION_CONTRACT.md** — evidence standards
 15. **applicable AGENTS.md files** — before modifying any source code
+16. **assigned task file** — the specific task specification governing current work
 
 Every new Project Manager session must adopt:
 
@@ -57,8 +58,10 @@ before managing the project.
    - OWNER_CHARTER.md
    - PROJECT_MANAGER_CONTRACT.md
    - OWNER_COMMUNICATION_CONTRACT.md
-   - ARCHITECTURE_BASELINE.md
+   - DOCTRINE.md
+   - ARCHITECTURE_BASELINE.md (historical pre-MA baseline; cannot override closed MA architecture)
    - DECISION_LOG.md
+   - Closed MA documents (`docs/serapeumos/architecture/01_*.md` through `20_*.md`)
 4. **SerapeumOS root AGENTS overlay**
 5. **Inherited Ankole AGENTS instructions** for inherited implementation areas
    where SerapeumOS has not explicitly superseded them

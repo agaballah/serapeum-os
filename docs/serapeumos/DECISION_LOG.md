@@ -147,16 +147,9 @@ sequence ID is the primary ordering key.
 - **Reason:** This is the architecture-selected and locked baseline commit.
   Production admission remains subject to MA-19 provenance verification and
   applicable MA-20 executable qualification.
-- **Supersession:** Only via an explicit foundation requalification decision.
+ - **Supersession:** Only via an explicit foundation requalification decision.
 
-- **Status:** LOCKED
-- **Decision:** Qualified foundation = Ankole v1.0.4-rc.1 at exact commit
-  7434d934315881438d4788d41228ba31d2f26fbb.
-- **Reason:** This is the architecture-qualified baseline commit selected
-  by the foundation qualification process.
-- **Supersession:** Only via an explicit foundation requalification decision.
-
----
+ ---
 
 ## D-014 — GitHub/repository as permanent project memory
 
@@ -249,7 +242,9 @@ sequence ID is the primary ordering key.
 - **Decision:** SerapeumOS core architecture is host-platform neutral. Host-specific
   security/runtime mechanisms must remain behind bounded adapters and brokers.
 - **Reason:** The product must be operable on any host satisfying the prerequisites
-  in PREREQUISITES.md. Windows is one qualified target, not the architecture.
+  in PREREQUISITES.md. Windows is the first production qualification target/family,
+  not yet empirically release-qualified; it is the architecture, not a qualified
+  production host.
 - **Supersession:** Only through explicit Owner-approved governance change.
 
 ---
@@ -2739,5 +2734,20 @@ sequence ID is the primary ordering key.
 - **Decision:** After MA-20 persistence, the required next steps remain Final cross-domain consistency
   audit, fresh-agent reconstruction validation and Final Master Architecture Gate PASS before
   implementation decomposition/agent activation.
-- **Reason:** Architecture closure ≠ implementation readiness; governance gates must still pass.
-- **Supersession:** Only through explicit Owner-approved governance change.
+ - **Reason:** Architecture closure ≠ implementation readiness; governance gates must still pass.
+ - **Supersession:** Only through explicit Owner-approved governance change.
+
+ ---
+
+## D-266 — Foundation terminology clarification
+
+ - **Status:** LOCKED
+ - **Decision:** The term "qualified foundation" in D-013's original historical
+   wording referred to foundation selection and architecture-baseline status. It
+   does NOT mean the foundation has completed MA-20 executable release qualification.
+   The correct current term is "locked foundation baseline." Any earlier use of
+   "qualified" in the Foundation field refers to architecture-selection, not
+   empirical release qualification.
+ - **Reason:** A fresh agent reading D-013 could conflate architecture selection
+   with MA-20 production admission. The terminology must be unambiguous.
+ - **Supersession:** Only through explicit Owner-approved governance change.

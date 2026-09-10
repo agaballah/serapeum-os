@@ -30,8 +30,12 @@ When multiple governance sources apply, use this order:
    - OWNER_CHARTER.md
    - PROJECT_MANAGER_CONTRACT.md (this file)
    - OWNER_COMMUNICATION_CONTRACT.md
-   - ARCHITECTURE_BASELINE.md
+   - DOCTRINE.md
+   - ARCHITECTURE_BASELINE.md (historical pre-MA baseline; cannot override
+     closed MA architecture documents)
    - DECISION_LOG.md
+   - Closed MA documents (`docs/serapeumos/architecture/01_*.md` through
+     `20_QUALIFICATION_RELEASE_GATES.md`)
 4. SerapeumOS root AGENTS overlay (this file)
 5. Inherited Ankole AGENTS instructions for inherited Ankole implementation
    areas where SerapeumOS has not explicitly superseded them
@@ -126,15 +130,17 @@ After every meaningful milestone, ensure the following remain current:
 
 - **PROJECT_STATE.md** — update phase, milestones, blockers, next action.
 - **docs/serapeumos/PROJECT_CONSTITUTION.md** — update only if Owner-approved.
+- **docs/serapeumos/DOCTRINE.md** — update only if Owner-approved.
 - **docs/serapeumos/DECISION_LOG.md** — add any new locked decisions.
-- **docs/serapeumos/ARCHITECTURE_BASELINE.md** — update if approved architecture changes.
 - **docs/serapeumos/ROADMAP.md** — advance completed/current/next sections.
+- **docs/serapeumos/architecture/** — do not modify closed MA documents without
+  PM authorization for demonstrated source-copy corruption.
 
 ## Locked doctrine (do not change without Owner approval)
 
-- Gold Rule #1 (100% open source, 100% local).
+- Gold Rule #1 (SerapeumOS-owned components above host substrate: 100% OSS and 100% local; host substrate is external prerequisite).
 - SerapeumOS is an independent downstream, not a GitHub fork.
-- Foundation = Ankole v1.0.4-rc.1 at SHA 7434d934315881438d4788d41228ba31d2f26fbb.
+- Foundation = Ankole v1.0.4-rc.1 at SHA 7434d934315881438d4788d41228ba31d2f26fbb (locked baseline; production admission subject to MA-19/MA-20).
 - Product name = SerapeumOS.
 - Public repository = agaballah/serapeum-os.
 

@@ -41,7 +41,7 @@ one label from each system simultaneously.
 | `R*` storage ownership classes | MA-09 | R0–R6 | Data ownership and mutability authority |
 | `L*` reliability/execution levels | MA-12 | L0–L5 | Crash-recovery and fencing guarantees |
 | `SE-*` System Evolution change classes | MA-15 | SE-0 through SE-4 | Permitted evolution modification scope |
-| Qualification evidence states | MA-20 | DESIGN → PROTOTYPE → QUALIFIED → RELEASED | Empirical readiness level |
+| Qualification evidence states | MA-20 | NOT_RUN, PASS, FAIL, INCONCLUSIVE, BLOCKED, NOT_APPLICABLE_WITH_RATIONALE, STALE | Empirical readiness level per evidence requirement |
 
 A fresh agent reads each classification in context; no single axis dominates.
 

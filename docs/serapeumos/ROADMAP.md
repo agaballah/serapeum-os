@@ -32,14 +32,16 @@ Validation, then the Final Master Architecture Gate.
 ## Next steps
 
 1. ARCH-SYNC-01 — documentation/governance synchronization (in progress)
-2. Fresh-Agent Reconstruction Validation — verify a new AI can reconstruct
+2. Repository persistence / verification — confirm document-graph integrity,
+   decision-ID continuity, reading-order resolution, and cross-file consistency
+3. Fresh-Agent Reconstruction Validation — verify a new AI can reconstruct
    the project solely from repository files
-3. Final Master Architecture / Design Gate — full gate review and PASS
-4. Implementation Decomposition — decompose architecture into bounded tasks
-5. Kilo execution-agent activation — authorized bounded task execution
-6. Controlled implementation — execute tasks under PM supervision
-7. MA-20 executable qualification — empirical proof of production fitness
-8. Release preparation — bring system to verifiable release state
+4. Final Master Architecture / Design Gate — full gate review and PASS
+5. Implementation Decomposition — decompose architecture into bounded tasks
+6. Kilo execution-agent activation — authorized bounded task execution
+7. Controlled implementation — execute tasks under PM supervision
+8. MA-20 executable qualification — empirical proof of production fitness
+9. Release preparation — bring system to verifiable release state
 
 ## Notes
 
