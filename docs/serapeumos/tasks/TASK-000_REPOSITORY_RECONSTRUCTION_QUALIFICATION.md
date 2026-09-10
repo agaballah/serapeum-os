@@ -38,10 +38,17 @@ PRECONDITIONS:
 - Exact HEAD SHA is discovered and reported at runtime; do NOT hardcode a
   previous HEAD as a precondition — this task is committed inside the repository
   and its specification must remain valid across HEAD advances
-- Working tree cleanliness: no tracked or staged modifications may exist at
-  start; HEAD must remain unchanged throughout the read-only qualification
+- No tracked working-tree modifications may exist at start
+- No staged modifications may exist at start
+- Qualification HEAD must remain unchanged throughout the read-only qualification
+- Untracked files do not automatically invalidate a checkout, but they are never
+  repository authority and must never be read as evidence
 - Tools: any capable AI reader with file read access to repository path
-- Repository path: D:\SerapeumOS
+- Repository path:
+  - the isolated qualification checkout selected by the PM for the current attempt;
+  - the agent must operate only inside that supplied checkout;
+  - the checkout HEAD must equal the PM-selected authoritative origin/main snapshot;
+  - the runtime path must be reported in the final evidence.
 
 SCOPE:
 - Allowed files: Read-only access to Git-tracked repository files ONLY. Derive
@@ -135,8 +142,9 @@ EVIDENCE:
 - Any discrepancies between reconstruction and repository truth
 
 STOP / ESCALATE:
-- If precondition fails (wrong branch, untracked/staged modifications present,
-  working tree dirty): STOP and report
+- If precondition fails (wrong selected branch/reference/snapshot, tracked
+  modifications present, staged modifications present, HEAD changed during
+  qualification): STOP and report
 - If architecture conflict found between reconstruction and documented MA
   documents: STOP and escalate
 - If evidence cannot be collected for any checklist item: STOP and report
