@@ -20,23 +20,25 @@
 
 **FINAL MASTER ARCHITECTURE / DESIGN GATE**
 
-Current task: ARCH-SYNC-01 — documentation/governance synchronization.
+Current task: Repository Persistence / Verification — awaiting PM verdict.
 
-Synchronize repository-native master/governance documentation with the
-already-approved MA-01→MA-20 architecture. Persist closed MA documents.
-Repair stale current-state wording. Normalize Gold Rule #1 scope.
+ARCH-SYNC-01 documentation/governance synchronization is COMPLETED / ACCEPTED.
+Persist closed MA documents and cross-domain audit evidence. Verify document-
+graph integrity, decision-ID continuity, reading-order resolution, and cross-
+file consistency. Record transition to main branch.
 
-After ARCH-SYNC-01 passes, the next step is Repository Persistence /
-Verification, then Fresh-Agent Reconstruction Validation, then the Final
-Master Architecture Gate.
+After Repository Persistence / Verification passes, the next step is Fresh-Agent
+Reconstruction Validation, then the Final Master Architecture Gate.
 
 ## Next steps
 
-1. ARCH-SYNC-01 — documentation/governance synchronization (in progress)
+1. ARCH-SYNC-01 — documentation/governance synchronization (COMPLETED / ACCEPTED)
 2. Repository persistence / verification — confirm document-graph integrity,
    decision-ID continuity, reading-order resolution, and cross-file consistency
+   (in progress; awaiting PM verdict)
 3. Fresh-Agent Reconstruction Validation — verify a new AI can reconstruct
-   the project solely from repository files
+   the project solely from repository files (BLOCKED until PM accepts
+   persistence/verification)
 4. Final Master Architecture / Design Gate — full gate review and PASS
 5. Implementation Decomposition — decompose architecture into bounded tasks
 6. Kilo execution-agent activation — authorized bounded task execution

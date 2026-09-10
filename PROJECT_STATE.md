@@ -25,23 +25,24 @@
 
 - **Current phase:** FINAL MASTER ARCHITECTURE / DESIGN GATE
 - **Implementation:** NOT STARTED
-- **Current active work:** ARCH-SYNC-01 — documentation/governance synchronization
-  under Project Manager review
+- **Current active work:** Repository Persistence / Verification — awaiting PM
+  verdict after evidence collection
 - **Next gate:** FINAL MASTER ARCHITECTURE / DESIGN GATE
 - **Next action after PM acceptance of ARCH-SYNC-01:** repository persistence /
-  verification
-- **Fresh-Agent Reconstruction Validation:** BLOCKED until ARCH-SYNC-01 passes
-  and repository persistence / verification completes
+  verification (in progress; evidence collected, awaiting PM verdict)
+- **Fresh-Agent Reconstruction Validation:** BLOCKED until PM accepts repository
+  persistence / verification
 
 ## Last updated
 
 - **Date:** 2026-09-10
-- **Milestone:** ARCH-SYNC-01 — awaiting PM verdict
-- **Next immediate action:** Project Manager review of corrective commit
+- **Milestone:** ARCH-SYNC-01 — ACCEPTED / completed
+- **Next immediate action:** PM review of Repository Persistence / Verification evidence
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
 is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE / PASS.
-ARCH-SYNC-01 is pending PM acceptance.
+ARCH-SYNC-01 is ACCEPTED. Repository Persistence / Verification is in progress;
+evidence collected, awaiting PM verdict.
 
 ## Update discipline
 
