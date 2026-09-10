@@ -7,41 +7,41 @@ meet. It applies to all bounded tasks across all MA domains.
 
 | Level | Description | Examples |
 |---|---|---|
-| L1 — Direct observation | What the agent saw with its own tools | git status, file reads, command output |
-| L2 — Verified computation | Calculated or derived from L1 evidence | checksums, diffs, line counts |
-| L3 — External confirmation | State confirmed via API or separate process | gh API responses, remote refs |
-| L4 — Test pass | Automated test produced expected output | unit test green, integration test green |
-| L5 — Human acceptance | Project Manager reviews and accepts evidence | PM sign-off on report |
+| E1 — Direct observation | What the agent saw with its own tools | git status, file reads, command output |
+| E2 — Verified computation | Calculated or derived from E1 evidence | checksums, diffs, line counts |
+| E3 — External confirmation | State confirmed via API or separate process | gh API responses, remote refs |
+| E4 — Test pass | Automated test produced expected output | unit test green, integration test green |
+| E5 — Human acceptance | Project Manager reviews and accepts evidence | PM sign-off on report |
 
-L1 is the minimum for any factual claim. L4 is required for implementation
-tasks. L5 is required for task completion.
+E1 is the minimum for any factual claim. E4 is required for implementation
+tasks. E5 is required for task completion.
 
 ## Evidence requirements by claim type
 
 ### "File X exists"
-- L1: `cat` or file read returning content
+- E1: `cat` or file read returning content
 - Must show path and non-empty content
 
 ### "File Y was modified"
-- L1: `git diff` showing the change
-- L2: diff stat confirming line count change
+- E1: `git diff` showing the change
+- E2: diff stat confirming line count change
 - Must show before/after for substantive changes
 
 ### "Command Z succeeded"
-- L1: command output showing expected result
+- E1: command output showing expected result
 - Must NOT rely on exit code alone
 - Must show the actual output
 
 ### "Test passed"
-- L4: test framework output showing PASS
+- E4: test framework output showing PASS
 - Must include test name and assertion
 
 ### "Repository state is S"
-- L3: `gh api` or `git ls-remote` confirming remote state
-- L1: local `git` command confirming local state
+- E3: `gh api` or `git ls-remote` confirming remote state
+- E1: local `git` command confirming local state
 
 ### "Artifact has digest D"
-- L2: hash computation (`sha256sum`, `certutil -hashfile`, etc.)
+- E2: hash computation (`sha256sum`, `certutil -hashfile`, etc.)
 - Must show command and result
 
 ## Forbidden evidence practices
@@ -78,7 +78,7 @@ Changes:
 - <file>: <what changed and why>
 
 Evidence:
-- <L1/L2/L3/L4 evidence for each claim>
+- <E1/E2/E3/E4/E5 evidence for each claim>
 
 Acceptance criteria met:
 - [ ] <criterion 1>

@@ -26,8 +26,9 @@ Synchronize repository-native master/governance documentation with the
 already-approved MA-01→MA-20 architecture. Persist closed MA documents.
 Repair stale current-state wording. Normalize Gold Rule #1 scope.
 
-After ARCH-SYNC-01 passes, the next step is Fresh-Agent Reconstruction
-Validation, then the Final Master Architecture Gate.
+After ARCH-SYNC-01 passes, the next step is Repository Persistence /
+Verification, then Fresh-Agent Reconstruction Validation, then the Final
+Master Architecture Gate.
 
 ## Next steps
 

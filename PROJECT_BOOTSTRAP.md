@@ -33,7 +33,7 @@ Read these files in this exact order before any other action:
 8. **docs/serapeumos/DOCTRINE.md** — normative product doctrine
 9. **docs/serapeumos/architecture/00_MASTER_ARCHITECTURE.md** — architecture index and crosswalk
 10. **docs/serapeumos/architecture/01_HOST_INTEGRITY_AND_TCB.md** through `20_QUALIFICATION_RELEASE_GATES.md` — closed MA documents
-11. **docs/serapeumos/DECISION_LOG.md** — chronological decision register (D-001 through D-265)
+11. **docs/serapeumos/DECISION_LOG.md** — chronological decision register (D-001 through D-266)
 12. **docs/serapeumos/ROADMAP.md** — gate-level roadmap
 13. **docs/serapeumos/agent/EXECUTION_AGENT_CONTRACT.md** — execution agent role contract
 14. **docs/serapeumos/agent/EVIDENCE_AND_COMPLETION_CONTRACT.md** — evidence standards

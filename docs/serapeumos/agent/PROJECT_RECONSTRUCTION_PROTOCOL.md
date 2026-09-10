@@ -19,10 +19,9 @@ A successful reconstruction must demonstrate understanding of:
 ### Product identity
 - Product name: SerapeumOS
 - Public repository: agaballah/serapeum-os
-- Local path: D:\SerapeumOS
+- Local path: read from PROJECT_STATE.md
 - Git relationship: independent downstream, not a GitHub fork
-- Product definition: "Local-first, open-source operating system for autonomous
-  digital organizations"
+- Product definition: read from PROJECT_BOOTSTRAP.md or PROJECT_CONSTITUTION.md
 
 ### Authority model
 - Owner has final authority over doctrine, Constitution, Gold Rules, and
@@ -55,11 +54,17 @@ A successful reconstruction must demonstrate understanding of:
 - System Evolution safety boundary is understood
 
 ### Current state
-- Phase: FINAL MASTER ARCHITECTURE / DESIGN GATE (post-ARCH-SYNC-01)
-- Implementation: NOT STARTED
-- Runtime prototypes: PAUSED
-- Next gate: Final Master Architecture Gate (after ARCH-SYNC-01 acceptance)
-- Next action after gate: Implementation Decomposition
+- Current phase: read from PROJECT_STATE.md
+- Current gate: read from PROJECT_STATE.md or ROADMAP.md
+- Blockers: read from PROJECT_STATE.md
+- Exact next action: read from PROJECT_STATE.md or ROADMAP.md
+- Implementation: NOT STARTED until Final Master Architecture Gate passes
+- Runtime prototypes: PAUSED until architecture gate authorizes empirical qualification
+
+### Repository persistence status
+- ARCH-SYNC-01 persistence state: read from PROJECT_STATE.md
+- Repository persistence / verification state: read from PROJECT_STATE.md or ROADMAP.md
+- Fresh-Agent Reconstruction Validation state: read from PROJECT_STATE.md or ROADMAP.md
 
 ### Security principles
 - A compromised Agent runtime must not silently damage the host or Company state
@@ -89,3 +94,19 @@ To validate reconstruction:
 
 If reconstruction fails on any checklist item, the responsible document(s)
 must be repaired before proceeding to the Final Master Architecture Gate.
+
+## Reconstruction sequence
+
+The required project sequence is:
+
+1. ARCH-SYNC-01 — documentation/governance synchronization
+2. Repository Persistence / Verification — confirm document-graph integrity,
+   decision-ID continuity, reading-order resolution, and cross-file consistency
+3. Fresh-Agent Reconstruction Validation — verify a new AI can reconstruct
+   the project solely from repository files
+4. Final Master Architecture / Design Gate — full gate review and PASS
+5. Implementation Decomposition — decompose architecture into bounded tasks
+
+The protocol must not instruct the agent to skip Repository Persistence /
+Verification. Fresh-Agent Reconstruction Validation is not the immediate next
+step after ARCH-SYNC-01 until repository persistence/verification passes.

@@ -19,7 +19,7 @@ Defined by MA-01, MA-17, and MA-20.
 
 | Requirement | Notes |
 |---|---|
-| CPU with hardware virtualization support | Architecture-neutral; x86_64 and arm64 targeted initially |
+| CPU with hardware virtualization support | Architecture-neutral; exact host families and minima determined by MA-20 Qualification Policy |
 | Hypervisor feature (WHP/KVM/Hyper-V or equivalent) | Enables VM-based Agent Appliance acceleration |
 | Sufficient physical RAM for guest + host safety reserve | Exact minimum determined by MA-20 Qualification Policy |
 | Sufficient logical processors for guest allocation | Exact minimum determined by MA-20 Qualification Policy |
@@ -28,7 +28,7 @@ Defined by MA-01, MA-17, and MA-20.
 
 | Requirement | Notes |
 |---|---|
-| Local fixed storage with appropriate semantics | NTFS (Windows) and ext4/XFS (Linux) as initial candidates; exact filesystem requirements per MA-17 |
+| Local fixed storage with appropriate semantics | NTFS (Windows 11 x86-64) and ext4/XFS (Linux x86-64) as initial qualification families; exact filesystem requirements per MA-17 |
 | Capacity for immutable appliance image + persistent `/agents` disk | Exact sizes determined by MA-20 Qualification Policy |
 | Atomic rename and durability guarantees | Required by MA-13 backup/restore and MA-17 storage contract |
 
@@ -36,7 +36,7 @@ Defined by MA-01, MA-17, and MA-20.
 
 | Requirement | Notes |
 |---|---|
-| Ability to deny network by default at VM and container levels | MA-01 contract; default-deny networking |
+| Ability to deny network by default | MA-01 contract; default-deny networking |
 | Optional controlled egress for research/updates | Governed by MA-08 external research controls; not required |
 
 ### Security
@@ -46,7 +46,6 @@ Defined by MA-01, MA-17, and MA-20.
 | Host-level isolation boundary (VM or equivalent) | One hard Agent boundary per Agent Principal at a time (MA-01) |
 | Protected root-secret storage | Required capability; missing controls disable production mode (MA-17) |
 | Physical encrypted-at-rest for managed storage | Where policy requires it (MA-17, D-194) |
-| TPM or equivalent attestation (recommended) | Supports trusted boot path per MA-01 |
 
 ### Local inference
 

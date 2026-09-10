@@ -94,11 +94,15 @@ ESCALATE TO PROJECT MANAGER / OWNER AS APPROPRIATE.
 | UNRESOLVED | Open architecture question; implementation depending on it is blocked |
 | REJECTED | Explicitly excluded direction |
 | SUPERSEDED | Formerly valid decision replaced by a newer locked decision |
-| CLOSED | All material design questions in the domain are LOCKED or explicitly deferred |
+| CLOSED | All material architecture questions are LOCKED or explicitly deferred below architecture to governed implementation, backend selection, policy or executable qualification without changing the locked architecture semantics |
 
-An MA domain is CLOSED only when all material design questions are resolved.
-PROPOSED and UNRESOLVED items inside a CLOSED MA document are historical
-closure-record items, not current architecture-blocking questions.
+An MA domain may be CLOSED when all material architecture questions are either:
+1. LOCKED; or
+2. explicitly deferred below architecture to governed implementation, backend selection, policy or executable qualification without changing the locked architecture semantics.
+
+A PROPOSED implementation/backend/qualification candidate inside a CLOSED MA is not automatically "historical." It may remain a current non-architecture-blocking candidate.
+
+UNRESOLVED architecture that would change semantics still blocks architecture closure.
 
 ## Required artifacts per domain
 

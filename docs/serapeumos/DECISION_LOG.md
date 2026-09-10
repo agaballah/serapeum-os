@@ -139,17 +139,16 @@ sequence ID is the primary ordering key.
 
 ---
 
-## D-013 — Locked foundation baseline commit
+## D-013 — Qualified foundation commit
 
 - **Status:** LOCKED
-- **Decision:** Locked foundation baseline = Ankole v1.0.4-rc.1 at exact commit
+- **Decision:** Qualified foundation = Ankole v1.0.4-rc.1 at exact commit
   7434d934315881438d4788d41228ba31d2f26fbb.
-- **Reason:** This is the architecture-selected and locked baseline commit.
-  Production admission remains subject to MA-19 provenance verification and
-  applicable MA-20 executable qualification.
- - **Supersession:** Only via an explicit foundation requalification decision.
+- **Reason:** This is the architecture-qualified baseline commit selected
+  by the foundation qualification process.
+- **Supersession:** Only via an explicit foundation requalification decision.
 
- ---
+---
 
 ## D-014 — GitHub/repository as permanent project memory
 
@@ -242,9 +241,9 @@ sequence ID is the primary ordering key.
 - **Decision:** SerapeumOS core architecture is host-platform neutral. Host-specific
   security/runtime mechanisms must remain behind bounded adapters and brokers.
 - **Reason:** The product must be operable on any host satisfying the prerequisites
-  in PREREQUISITES.md. Windows is the first production qualification target/family,
-  not yet empirically release-qualified; it is the architecture, not a qualified
-  production host.
+  in PREREQUISITES.md. Windows 11 x86-64 is the first production qualification
+  target/family. Windows is not the architecture and is not yet empirically
+  release-qualified.
 - **Supersession:** Only through explicit Owner-approved governance change.
 
 ---
@@ -2741,13 +2740,13 @@ sequence ID is the primary ordering key.
 
 ## D-266 — Foundation terminology clarification
 
- - **Status:** LOCKED
- - **Decision:** The term "qualified foundation" in D-013's original historical
-   wording referred to foundation selection and architecture-baseline status. It
-   does NOT mean the foundation has completed MA-20 executable release qualification.
-   The correct current term is "locked foundation baseline." Any earlier use of
-   "qualified" in the Foundation field refers to architecture-selection, not
-   empirical release qualification.
- - **Reason:** A fresh agent reading D-013 could conflate architecture selection
-   with MA-20 production admission. The terminology must be unambiguous.
- - **Supersession:** Only through explicit Owner-approved governance change.
+- **Status:** LOCKED
+- **Decision:** The term "qualified foundation" in D-013's original historical
+  wording referred to foundation selection and architecture-baseline status. It
+  does NOT mean the foundation has completed MA-20 executable release qualification.
+  The correct current term is "locked foundation baseline." Any earlier use of
+  "qualified" in the Foundation field refers to architecture-selection, not
+  empirical release qualification.
+- **Reason:** A fresh agent reading D-013 could conflate architecture selection
+  with MA-20 production admission. The terminology must be unambiguous.
+- **Supersession:** Only through explicit Owner-approved governance change.

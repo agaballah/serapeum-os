@@ -1,8 +1,15 @@
-# Architecture Baseline — APPROVED PRE-IMPLEMENTATION
+# Architecture Baseline — HISTORICAL PRE-MA BASELINE
 
-> This document records the currently approved pre-implementation architecture.
-> Detailed implementation schemas, APIs, and data models belong to the Final
-> Master Architecture / Design Gate.
+> This document records the historical pre-MA baseline architecture.
+> It remains useful provenance and history, but it is no longer the current
+> normative master architecture.
+>
+> Current architecture authority is:
+> - `00_MASTER_ARCHITECTURE.md` — cross-domain architecture index
+> - Closed MA-01 → MA-20 documents (`docs/serapeumos/architecture/01_*.md` through `20_*.md`)
+> - Current governance and locked decision records (`DECISION_LOG.md`, `PROJECT_MANAGER_CONTRACT.md`, etc.)
+>
+> Do not treat this document as the active architecture source for new decisions.
 
 ## Core mental model
 
