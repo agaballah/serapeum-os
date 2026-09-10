@@ -155,10 +155,11 @@ STOP / ESCALATE:
   escalate (contamination violation)
 
 GIT HANDLING:
-- Work branch: main
-- Commit message: none (read-only task)
-- Push authority: no
-- Merge authority: no
+- Qualification reference = PM-selected snapshot of authoritative origin/main
+- A detached isolated checkout is permitted
+- Exact HEAD must equal the PM-selected origin/main snapshot
+- No branch creation/switching is required by TASK-000
+- Read-only task; no commit/push/merge authority
 
 FINAL REPORT:
 - Files read in order
