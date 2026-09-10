@@ -15,18 +15,21 @@
 | Bootstrap Phase 4 — Governance Closure | DONE |
 | MA-01 → MA-20 — Architecture Closure | COMPLETE / PASS |
 | Final Cross-Domain Consistency Audit | COMPLETE — MA-01→MA-20 domain architecture consistency PASS; documentation-synchronization blockers handled through ARCH-SYNC-01 / repository persistence and accepted by PM |
+| Fresh-Agent Reconstruction Validation | COMPLETE / PASS |
 
 ## Current phase
 
 **FINAL MASTER ARCHITECTURE / DESIGN GATE**
 
-Current task: Fresh-Agent Reconstruction Validation — NEXT AUTHORIZED GATE.
+Current task: Final Master Architecture / Design Gate — NEXT PM GATE.
 
 ARCH-SYNC-01 documentation/governance synchronization is COMPLETED / ACCEPTED.
-Repository Persistence / Verification is COMPLETE / PASS / ACCEPTED. TASK-003
-harness repair is CLOSED / ACCEPTED. TASK-004 precision repair is CLOSED /
-ACCEPTED. Fresh-Agent Reconstruction Validation Attempt 1 = FAIL / NOT
-QUALIFIED; Attempt 2 = FAIL / NOT QUALIFIED; TASK-000 Attempt 3 is AUTHORIZED.
+Repository Persistence / Verification is COMPLETE / PASS / ACCEPTED. TASK-000
+Fresh-Agent Reconstruction Qualification is CLOSED / ACCEPTED; Attempt 1 = FAIL
+/ NOT QUALIFIED; Attempt 2 = FAIL / NOT QUALIFIED; Attempt 3 = PASS / QUALIFIED.
+TASK-003 harness repair is CLOSED / ACCEPTED. TASK-004 precision repair is
+CLOSED / ACCEPTED. Fresh-Agent Reconstruction Validation is COMPLETE / PASS.
+Final Master Architecture / Design Gate is NEXT PM GATE.
 
 After Repository Persistence / Verification passes, the next step is Fresh-Agent
 Reconstruction Validation, then the Final Master Architecture Gate.
@@ -38,11 +41,13 @@ Reconstruction Validation, then the Final Master Architecture Gate.
    decision-ID continuity, reading-order resolution, and cross-file consistency
    (COMPLETE / PASS / ACCEPTED)
 3. Fresh-Agent Reconstruction Validation — verify a new AI can reconstruct
-   the project solely from repository files (NEXT AUTHORIZED GATE; TASK-000
-   Attempt 3 authorized; Attempt 1 = FAIL / NOT QUALIFIED; Attempt 2 = FAIL
-   / NOT QUALIFIED, not yet started)
-4. Final Master Architecture / Design Gate — full gate review and PASS
+   the project solely from repository files (COMPLETE / PASS; TASK-000 closed;
+   Attempt 1 = FAIL / NOT QUALIFIED; Attempt 2 = FAIL / NOT QUALIFIED; Attempt
+   3 = PASS / QUALIFIED)
+4. Final Master Architecture / Design Gate — full gate review and PASS (NEXT
+   PM GATE; not yet reviewed)
 5. Implementation Decomposition — decompose architecture into bounded tasks
+   (NOT STARTED; blocked by Final Master Architecture / Design Gate)
 6. Kilo execution-agent activation — authorized bounded task execution
 7. Controlled implementation — execute tasks under PM supervision
 8. MA-20 executable qualification — empirical proof of production fitness

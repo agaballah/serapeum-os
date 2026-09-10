@@ -20,7 +20,7 @@ the Project Manager and updated after each task completion.
 
 | ID | Title | Status | Authorized by | Created | Closed |
 |---|---|---|---|---|---|
-| TASK-000 | Repository Reconstruction Qualification | AUTHORIZED — Attempt 3 | PM | 2026-09-10 | — |
+| TASK-000 | Repository Reconstruction Qualification | CLOSED — Attempt 1 FAIL / NOT QUALIFIED; Attempt 2 FAIL / NOT QUALIFIED; Attempt 3 PASS / QUALIFIED | PM | 2026-09-10 | 2026-09-10 |
 | TASK-001 | ARCH-SYNC-01 Governance Documentation Synchronization | CLOSED | PM | 2026-09-10 | 2026-09-10 |
 | TASK-002 | Repository Persistence / Verification | CLOSED | PM | 2026-09-10 | 2026-09-10 |
 | TASK-003 | Fresh-Agent Reconstruction Harness Repair | CLOSED | PM | 2026-09-10 | 2026-09-10 |
