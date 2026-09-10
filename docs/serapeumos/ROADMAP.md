@@ -20,7 +20,7 @@
 
 **FINAL MASTER ARCHITECTURE / DESIGN GATE**
 
-Current task: Fresh-Agent Reconstruction Validation — BLOCKED (Attempt 1 not qualified; awaiting TASK-003 repair).
+Current task: Fresh-Agent Reconstruction Validation — BLOCKED (Attempt 1 not qualified; TASK-003 harness repair evidence collected, awaiting PM verdict).
 
 ARCH-SYNC-01 documentation/governance synchronization is COMPLETED / ACCEPTED.
 Repository Persistence / Verification is COMPLETE / PASS / ACCEPTED. Persist
@@ -39,7 +39,7 @@ Reconstruction Validation, then the Final Master Architecture Gate.
    (COMPLETE / PASS / ACCEPTED)
 3. Fresh-Agent Reconstruction Validation — verify a new AI can reconstruct
    the project solely from repository files (BLOCKED — Attempt 1 not qualified;
-   awaiting TASK-003 harness repair)
+   TASK-003 harness repair evidence collected, awaiting PM verdict)
 4. Final Master Architecture / Design Gate — full gate review and PASS
 5. Implementation Decomposition — decompose architecture into bounded tasks
 6. Kilo execution-agent activation — authorized bounded task execution

@@ -32,15 +32,24 @@ AUTHORITY:
 - EVIDENCE_AND_COMPLETION_CONTRACT.md (evidence standards)
 
 PRECONDITIONS:
-- Branch: main
-- Base SHA: 8f00430fbd698ca2b701da683c503aae6643399f
-- Working tree: clean
+- Branch/reference under qualification = authoritative `main`
+- Qualification snapshot must equal the authoritative `origin/main` selected by
+  the PM immediately before the test
+- Exact HEAD SHA is discovered and reported at runtime; do NOT hardcode a
+  previous HEAD as a precondition — this task is committed inside the repository
+  and its specification must remain valid across HEAD advances
+- Working tree cleanliness: no tracked or staged modifications may exist at
+  start; HEAD must remain unchanged throughout the read-only qualification
 - Tools: any capable AI reader with file read access to repository path
 - Repository path: D:\SerapeumOS
 
 SCOPE:
-- Allowed files: Read-only access to all files under D:\SerapeumOS\
-- Allowed commands: File reads, git log/show/diff, hash computation, line counts
+- Allowed files: Read-only access to Git-tracked repository files ONLY. Derive
+  the authoritative file list via `git ls-files` (or equivalent read-only Git
+  tree inspection) at the selected qualification HEAD; do not scan the
+  filesystem for arbitrary files
+- Allowed commands: File reads from git-ls-files output, git log/show/diff,
+  hash computation, line counts
 - Allowed outcomes: Return reconstruction report with evidence for each checklist
   area; report repository HEAD reconstructed; pass/fail verdict per checklist
   item
@@ -54,6 +63,12 @@ FORBIDDEN:
   security boundary — document only what is locked by MA-01/MA-06
 - Do not invent: new architecture decisions beyond what is documented in MA-01
   through MA-20
+- Do not read: untracked files as repository authority; untracked files are NOT
+  part of Git-tracked repository truth
+- Do not inspect or use: `_archsync_input/` — this is non-authoritative local
+  reference material and MUST NOT be consulted during TASK-000 reconstruction
+- Do not perform: broad workspace scanning that includes untracked files; limit
+  all reads to the Git-tracked tree only
 
 REQUIRED BEHAVIOUR:
 - Follow the mandatory reading order from PROJECT_BOOTSTRAP.md exactly
@@ -120,14 +135,16 @@ EVIDENCE:
 - Any discrepancies between reconstruction and repository truth
 
 STOP / ESCALATE:
-- If precondition fails (wrong branch, wrong base SHA, dirty working tree):
-  STOP and report
-- If architecture conflict found between reconstruction and documented
-  MA documents: STOP and escalate
+- If precondition fails (wrong branch, untracked/staged modifications present,
+  working tree dirty): STOP and report
+- If architecture conflict found between reconstruction and documented MA
+  documents: STOP and escalate
 - If evidence cannot be collected for any checklist item: STOP and report
 - If unexpected repository state: STOP and report
 - If any inherited container/bubblewrap implementation is treated as the final
   hard security boundary: STOP and escalate
+- If untracked files are read or `_archsync_input/` is inspected: STOP and
+  escalate (contamination violation)
 
 GIT HANDLING:
 - Work branch: main

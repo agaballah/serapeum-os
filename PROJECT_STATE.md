@@ -25,17 +25,20 @@
 
 - **Current phase:** FINAL MASTER ARCHITECTURE / DESIGN GATE
 - **Implementation:** NOT STARTED
-- **Current active work:** Fresh-Agent Reconstruction Validation — BLOCKED (Attempt 1 not qualified; awaiting TASK-003 repair)
+- **Current active work:** TASK-003 Fresh-Agent Reconstruction Harness Repair —
+  evidence collected; awaiting PM verdict on TASK-003-R1
 - **Next gate:** FINAL MASTER ARCHITECTURE / DESIGN GATE
-- **Next action:** Start TASK-003 — Fresh-Agent Reconstruction Harness Repair to unblock TASK-000
-- **Fresh-Agent Reconstruction Validation:** BLOCKED — Attempt 1 not qualified; awaiting TASK-003 PM acceptance
+- **Next action:** PM review of TASK-003 evidence (repair commit acceptance)
+- **Fresh-Agent Reconstruction Validation:** BLOCKED — Attempt 1 not qualified;
+  TASK-003 harness repair under PM review; Attempt 2 awaits PM acceptance
 - **Assigned task spec:** docs/serapeumos/tasks/TASK-000_REPOSITORY_RECONSTRUCTION_QUALIFICATION.md
 
 ## Last updated
 
 - **Date:** 2026-09-10
-- **Milestone:** TASK-000 Fresh-Agent Reconstruction Attempt 1 = FAIL / NOT QUALIFIED; TASK-003 Harness Repair added
-- **Next immediate action:** Start TASK-003 — Fresh-Agent Reconstruction Harness Repair in a new agent session with zero prior SerapeumOS conversation context
+- **Milestone:** TASK-003-R1 harness repair committed; TASK-000 spec corrected for
+  runtime HEAD discovery and untracked-file contamination prevention
+- **Next immediate action:** PM review of TASK-003 evidence
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
 is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE — MA-01→MA-20
