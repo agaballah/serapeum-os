@@ -25,47 +25,54 @@ present, degraded, or absent:
 A missing capability does not imply weakened security. It implies a degraded
 or disabled operating mode per MA-17.
 
+Degraded operation disables capabilities; it does not weaken safeguards.
+
 ## Product prerequisites
 
-Capabilities that a supported host must provide for trusted durable operation,
-and additional capabilities required for fuller autonomy modes.
+### A. Trusted-core / durable-host capabilities
 
-### Baseline trusted-durable-operation requirements
-
-These capabilities are required for any mode that processes durable state,
-authoritative actions, or Owner-facing operations:
+Capabilities needed for whatever trusted durable operation is actually admitted
+on that host. These apply to trusted-core and Owner-facing operation independent
+of hostile-Agent execution.
 
 | Capability | Notes |
 |---|---|
-| Host-level isolation boundary (VM or equivalent) | One hard Agent Appliance boundary per Agent Principal at a time (MA-01). This is a security/isolation requirement, not merely VM acceleration. |
 | Protected root-secret storage | Required capability; missing controls disable production mode (MA-17) |
 | Physical encrypted-at-rest for managed storage | Where policy requires it (MA-17, D-194) |
 | Atomic rename and durability guarantees | Required by MA-13 backup/restore and MA-17 storage contract |
-| Ability to deny network by default | MA-01 contract; default-deny networking |
-| Local inference runtime capable of replacing temporary development inference | Must not require redesign of Company/Agents/Brain/Tasks/Governance/Evolution/ActionAssurance (D-073) |
+| Durable-state recovery and audit guarantees | Required for RECOVERY_ONLY and higher modes |
 
-### Additional `FULL_LOCAL_AUTONOMY` requirements
+### B. Hostile-Agent / FULL_LOCAL_AUTONOMY capabilities
 
-When the host can provide the full capability set, these additional requirements
-apply:
+Hard-Agent-specific requirements. These apply only when the host admits
+hostile-Agent execution under `FULL_LOCAL_AUTONOMY`. They are **not**
+prerequisites for `TRUSTED_CORE_ONLY`.
 
 | Capability | Notes |
 |---|---|
+| Hard Agent Appliance isolation boundary | One hard Agent Appliance boundary per Agent Principal at a time (MA-01). This is a security/isolation requirement, not merely VM acceleration. |
+| Qualified virtualization/backend capability | Required for the selected profile; exact backend determined by MA-01/MA-17 |
+| Hard resource containment for admitted Agent workloads | CPU/RAM/disk/network budgets authoritative per MA-11 |
+| Agent network isolation / default-deny enforcement | MA-01 contract; applies to admitted Agent network access |
+| Agent workspace / appliance runtime requirements | Immutable appliance image, persistent `/agents` disk, local inference runtime |
 | CPU with hardware virtualization support | Architecture-neutral; exact host families and minima determined by MA-20 Qualification Policy |
-| Qualified hypervisor backend (WHP/KVM/Hyper-V or equivalent) | Enables VM-based Agent Appliance isolation per MA-01/MA-17 |
 | Sufficient physical RAM for guest + host safety reserve | Exact minimum determined by MA-20 Qualification Policy |
 | Sufficient logical processors for guest allocation | Exact minimum determined by MA-20 Qualification Policy |
 | Capacity for immutable appliance image + persistent `/agents` disk | Exact sizes determined by MA-20 Qualification Policy |
 | Temporary development inference tool permitted during build/validation only | Must remain replaceable by design (D-074) |
 
-### Degraded-mode behavior
+### C. Capability-dependent features
+
+Unavailable capability disables the corresponding capability or mode according
+to MA-17. Do not treat absence of a feature-specific capability as total host
+failure unless MA-17 explicitly requires that conclusion.
 
 | Missing capability | Resulting mode |
 |---|---|
-| No qualified hypervisor / hard Agent Appliance boundary | `TRUSTED_CORE_ONLY` or `UNSUPPORTED` per MA-17 |
+| No qualified hard Agent Appliance boundary | `TRUSTED_CORE_ONLY` or `UNSUPPORTED` per MA-17 |
 | No protected root-secret storage | `UNSUPPORTED` for production mode |
-| No local inference runtime | `RECOVERY_ONLY` or `UNSUPPORTED` depending on remaining capabilities |
-| Network cannot be denied by default | `UNSUPPORTED` for production mode |
+| No local inference runtime | Feature disabled; mode transition per MA-17 |
+| Network cannot be denied by default | Agent network capability disabled; mode transition per MA-17 |
 
 ## Development prerequisites
 
