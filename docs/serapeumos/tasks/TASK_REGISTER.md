@@ -20,9 +20,9 @@ the Project Manager and updated after each task completion.
 
 | ID | Title | Status | Authorized by | Created | Closed |
 |---|---|---|---|---|---|
-| TASK-000 | Repository Reconstruction Qualification | PROPOSED | — | — | — |
+| TASK-000 | Repository Reconstruction Qualification | AUTHORIZED | PM | 2026-09-10 | — |
 | TASK-001 | ARCH-SYNC-01 Governance Documentation Synchronization | CLOSED | PM | 2026-09-10 | 2026-09-10 |
-| TASK-002 | Repository Persistence / Verification | EVIDENCE_COLLECTED | PM | 2026-09-10 | — |
+| TASK-002 | Repository Persistence / Verification | CLOSED | PM | 2026-09-10 | 2026-09-10 |
 
 ## Rules
 

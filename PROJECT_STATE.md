@@ -25,27 +25,26 @@
 
 - **Current phase:** FINAL MASTER ARCHITECTURE / DESIGN GATE
 - **Implementation:** NOT STARTED
-- **Current active work:** Repository Persistence / Verification — awaiting PM
-  verdict after evidence collection
+- **Current active work:** Fresh-Agent Reconstruction Validation — NEXT AUTHORIZED GATE
 - **Next gate:** FINAL MASTER ARCHITECTURE / DESIGN GATE
-- **Next action after PM acceptance of ARCH-SYNC-01:** repository persistence /
-  verification (in progress; evidence collected, awaiting PM verdict)
-- **Fresh-Agent Reconstruction Validation:** BLOCKED until PM accepts repository
-  persistence / verification
+- **Next action:** Start TASK-000 — Fresh-Agent Repository Reconstruction Qualification
+  in a new agent session with zero prior SerapeumOS conversation context
+- **Fresh-Agent Reconstruction Validation:** NEXT AUTHORIZED GATE — TASK-000 authorized,
+  awaiting fresh agent session start
 
 ## Last updated
 
 - **Date:** 2026-09-10
-- **Milestone:** ARCH-SYNC-01 — ACCEPTED / completed
-- **Next immediate action:** PM review of Repository Persistence / Verification evidence
+- **Milestone:** Repository Persistence / Verification — PASS / ACCEPTED / completed
+- **Next immediate action:** Start TASK-000 — Fresh-Agent Repository Reconstruction Qualification in a new agent session with zero prior SerapeumOS conversation context
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
 is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE — MA-01→MA-20
 domain architecture consistency PASS; documentation-synchronization blockers
 identified by the audit were handled through ARCH-SYNC-01 / repository persistence
-and remain subject to current PM verification. ARCH-SYNC-01 is ACCEPTED.
-Repository Persistence / Verification is in progress; evidence collected, awaiting
-PM verdict.
+and accepted by PM. ARCH-SYNC-01 is ACCEPTED. Repository Persistence / Verification
+is PASS / ACCEPTED / completed. Fresh-Agent Reconstruction Validation is the next
+authorized gate.
 
 ## Update discipline
 
