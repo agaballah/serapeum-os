@@ -40,9 +40,12 @@
 - **Next immediate action:** PM review of Repository Persistence / Verification evidence
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
-is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE / PASS.
-ARCH-SYNC-01 is ACCEPTED. Repository Persistence / Verification is in progress;
-evidence collected, awaiting PM verdict.
+is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE — MA-01→MA-20
+domain architecture consistency PASS; documentation-synchronization blockers
+identified by the audit were handled through ARCH-SYNC-01 / repository persistence
+and remain subject to current PM verification. ARCH-SYNC-01 is ACCEPTED.
+Repository Persistence / Verification is in progress; evidence collected, awaiting
+PM verdict.
 
 ## Update discipline
 

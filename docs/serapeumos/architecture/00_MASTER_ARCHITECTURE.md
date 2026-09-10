@@ -48,8 +48,8 @@ A fresh agent reads each classification in context; no single axis dominates.
 ## Current architecture state
 
 - **MA-01 → MA-20:** COMPLETE / PASS
-- **Final Cross-Domain Consistency Audit:** COMPLETE / PASS
-- **Final Master Architecture Gate:** PENDING (blocked by ARCH-SYNC-01 persistence)
+- **Final Cross-Domain Consistency Audit:** COMPLETE — MA-01→MA-20 domain architecture consistency PASS; documentation-synchronization blockers identified by the audit were handled through ARCH-SYNC-01 / repository persistence and remain subject to current PM verification
+- **Final Master Architecture Gate:** PENDING — Repository Persistence / Verification awaiting PM acceptance; Fresh-Agent Reconstruction Validation next prerequisite after persistence verification
 - **Implementation:** NOT STARTED
 - **Runtime prototypes:** PAUSED
 
