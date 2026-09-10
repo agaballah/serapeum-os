@@ -70,7 +70,7 @@ A successful reconstruction must demonstrate understanding of:
 - A compromised Agent runtime must not silently damage the host or Company state
 - Durable authoritative state cannot be mutated directly by untrusted Agents
 - Security and audit controls fail closed
-- One Agent Principal per hard VM boundary at a time
+- One hard Agent Appliance boundary is assigned to one Agent Principal at a time. The implementation/backend remains replaceable.
 
 ### Task execution rules
 - Agents receive tasks, not architecture prompts

@@ -76,7 +76,7 @@ A fresh agent reads each classification in context; no single axis dominates.
    - `PROJECT_MANAGER_CONTRACT.md`
    - `OWNER_COMMUNICATION_CONTRACT.md`
    - `DOCTRINE.md`
-   - `ARCHITECTURE_BASELINE.md`
+   - `ARCHITECTURE_BASELINE.md` — historical pre-MA baseline; cannot override closed MA architecture
    - `DECISION_LOG.md`
    - Closed MA documents (`architecture/01_*.md` through `20_*.md`)
 4. Root `AGENTS.md` overlay

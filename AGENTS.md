@@ -17,7 +17,7 @@ When multiple governance sources apply, use this order:
    - PROJECT_MANAGER_CONTRACT.md
    - OWNER_COMMUNICATION_CONTRACT.md
    - DOCTRINE.md
-   - ARCHITECTURE_BASELINE.md
+   - ARCHITECTURE_BASELINE.md — historical pre-MA baseline; cannot override closed MA architecture
    - DECISION_LOG.md
    - Closed MA documents (`docs/serapeumos/architecture/01_*.md` through `20_*.md`)
 4. SerapeumOS root AGENTS overlay (this file)
