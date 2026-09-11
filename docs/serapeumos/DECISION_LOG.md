@@ -1,4 +1,4 @@
-# Decision Log
+﻿# Decision Log
 
 Chronological register of locked project decisions. Each entry is ordered by
 project sequence ID. Dates are recorded where historically exact; otherwise
@@ -2734,6 +2734,21 @@ sequence ID is the primary ordering key.
   audit, fresh-agent reconstruction validation and Final Master Architecture Gate PASS before
   implementation decomposition/agent activation.
  - **Reason:** Architecture closure ≠ implementation readiness; governance gates must still pass.
+ - **Supersession:** Only through explicit Owner-approved governance change.
+
+ ---
+
+## D-266 — Foundation terminology clarification
+
+- **Status:** LOCKED
+- **Decision:** The term "qualified foundation" in D-013's original historical
+  wording referred to foundation selection and architecture-baseline status. It
+  does NOT mean the foundation has completed MA-20 executable release qualification.
+  The correct current term is "locked foundation baseline." Any earlier use of
+  "qualified" in the Foundation field refers to architecture-selection, not
+  empirical release qualification.
+- **Reason:** A fresh agent reading D-013 could conflate architecture selection
+  with MA-20 production admission. The terminology must be unambiguous.
 - **Supersession:** Only through explicit Owner-approved governance change.
 
 ---
@@ -2752,20 +2767,6 @@ sequence ID is the primary ordering key.
   model, or runtime. It does NOT authorize release. It does NOT authorize
   MA-18 production activation. Runtime prototypes remain PAUSED until explicitly
   authorized under a later implementation/qualification plan.
-- **Supersession:** Only via an explicit foundation requalification decision or
-  an explicit Owner-approved governance supersession.
-
- ---
-
-## D-266 — Foundation terminology clarification
-
-- **Status:** LOCKED
-- **Decision:** The term "qualified foundation" in D-013's original historical
-  wording referred to foundation selection and architecture-baseline status. It
-  does NOT mean the foundation has completed MA-20 executable release qualification.
-  The correct current term is "locked foundation baseline." Any earlier use of
-  "qualified" in the Foundation field refers to architecture-selection, not
-  empirical release qualification.
-- **Reason:** A fresh agent reading D-013 could conflate architecture selection
-  with MA-20 production admission. The terminology must be unambiguous.
-- **Supersession:** Only through explicit Owner-approved governance change.
+- **Supersession:** N/A — historical gate verdict. Future material architecture
+  or foundation changes require revalidation and a new gate decision; they do
+  not erase this recorded verdict.
