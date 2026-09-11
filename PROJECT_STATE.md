@@ -36,8 +36,8 @@
 
 ## Last updated
 
-- **Date:** 2026-09-10
-- **Milestone:** Final Master Architecture / Design Gate = PASS / ACCEPTED; Implementation Decomposition = NEXT PM PHASE
+- **Date:** 2026-09-11
+- **Milestone:** Final Master Architecture / Design Gate = PASS / ACCEPTED; Implementation Decomposition = NEXT PM PHASE; TASK-005 = CLOSED / ACCEPTED
 - **Next immediate action:** Project Manager decomposes the locked architecture into bounded implementation tasks
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
