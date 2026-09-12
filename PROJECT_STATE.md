@@ -23,22 +23,23 @@
 
 ## Development status
 
-- **Current phase:** IMPLEMENTATION DECOMPOSITION / PRE-IMPLEMENTATION
-- **Implementation:** NOT STARTED
-- **Current active work:** Implementation Decomposition — NEXT PM PHASE
-- **Next gate:** IMPLEMENTATION DECOMPOSITION
-- **Next action:** Project Manager decomposes the locked architecture into bounded implementation tasks
-- **Fresh-Agent Reconstruction Validation:** PASS / COMPLETED
+- **Current phase:** CONTROLLED IMPLEMENTATION — WAVE 1 PRE-CODE
+- **Implementation:** NOT STARTED — FIRST CODING TASK NOT YET AUTHORIZED
+- **Current active work:** Implementation Decomposition Persistence / TASK-006-CLOSE
+- **Next gate:** FIRST BOUNDED IMPLEMENTATION TASK AUTHORIZATION
+- **Next action:** Project Manager issues TASK-007 for the first bounded Company Domain implementation slice after TASK-006-CLOSE is accepted
 - **Final Master Architecture / Design Gate:** PASS / ACCEPTED / COMPLETED
+- **Implementation Decomposition:** PASS / ACCEPTED / COMPLETED
+- **First implementation workstream:** Company Domain Foundation + Principal Identity Integration — SELECTED / NOT STARTED
 - **MA-20 executable qualification:** NOT RUN
 - **Runtime prototypes:** PAUSED
 - **Assigned task spec:** docs/serapeumos/tasks/TASK-000_REPOSITORY_RECONSTRUCTION_QUALIFICATION.md
 
 ## Last updated
 
-- **Date:** 2026-09-11
-- **Milestone:** Final Master Architecture / Design Gate = PASS / ACCEPTED; Implementation Decomposition = NEXT PM PHASE; TASK-005 = CLOSED / ACCEPTED
-- **Next immediate action:** Project Manager decomposes the locked architecture into bounded implementation tasks
+- **Date:** 2026-09-12
+- **Milestone:** Implementation Decomposition = PASS / ACCEPTED; First workstream SELECTED; TASK-006-CLOSE in progress
+- **Next immediate action:** Project Manager issues TASK-007 for the first bounded Company Domain implementation slice after TASK-006-CLOSE is accepted
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
 is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE — MA-01→MA-20
@@ -47,9 +48,11 @@ identified by the audit were handled through ARCH-SYNC-01 / repository persisten
 and accepted by PM. ARCH-SYNC-01 is ACCEPTED. Repository Persistence / Verification
 is PASS / ACCEPTED / completed. Fresh-Agent Reconstruction Validation is PASS
 / COMPLETED. Final Master Architecture / Design Gate is PASS / ACCEPTED /
-COMPLETED. Implementation Decomposition is NEXT PM PHASE. Implementation
-remains NOT STARTED. MA-20 executable qualification remains NOT RUN. Runtime
-prototypes remain PAUSED.
+COMPLETED. Implementation Decomposition is PASS / ACCEPTED / COMPLETED. The
+first product implementation workstream (Company Domain Foundation + Principal
+Identity Integration) is SELECTED / NOT STARTED. Implementation remains NOT
+STARTED — first coding task not yet authorized. MA-20 executable qualification
+remains NOT RUN. Runtime prototypes remain PAUSED.
 
 ## Update discipline
 

@@ -17,24 +17,29 @@
 | Final Cross-Domain Consistency Audit | COMPLETE — MA-01→MA-20 domain architecture consistency PASS; documentation-synchronization blockers handled through ARCH-SYNC-01 / repository persistence and accepted by PM |
 | Fresh-Agent Reconstruction Validation | COMPLETE / PASS |
 | Final Master Architecture / Design Gate | COMPLETE / PASS / ACCEPTED |
+| Implementation Decomposition | COMPLETE / PASS / ACCEPTED |
 
 ## Current phase
 
-**IMPLEMENTATION DECOMPOSITION / PRE-IMPLEMENTATION**
+**CONTROLLED IMPLEMENTATION — WAVE 1 PRE-CODE**
 
-Current task: Implementation Decomposition — NEXT PM PHASE.
+Current task: Implementation Decomposition Persistence / TASK-006-CLOSE.
 
 ARCH-SYNC-01 documentation/governance synchronization is COMPLETED / ACCEPTED.
 Repository Persistence / Verification is COMPLETE / PASS / ACCEPTED. TASK-000
 Fresh-Agent Reconstruction Qualification is CLOSED / ACCEPTED; Attempt 1 = FAIL
 / NOT QUALIFIED; Attempt 2 = FAIL / NOT QUALIFIED; Attempt 3 = PASS / QUALIFIED.
-TASK-003 harness repair is CLOSED / ACCEPTED. TASK-004 precision repair is
+TASK-003 harness repair is CLOSED / ACCEPTED. TASK-04 precision repair is
 CLOSED / ACCEPTED. Fresh-Agent Reconstruction Validation is COMPLETE / PASS.
 Final Master Architecture / Design Gate is COMPLETE / PASS / ACCEPTED.
-Implementation Decomposition is NEXT PM PHASE.
+Implementation Decomposition is COMPLETE / PASS / ACCEPTED.
 
-After Repository Persistence / Verification passes, the next step is Fresh-Agent
-Reconstruction Validation, then the Final Master Architecture Gate.
+The first product implementation workstream is:
+**Company Domain Foundation + Principal Identity Integration** — SELECTED / NOT STARTED.
+FIRST CODING TASK = NOT YET AUTHORIZED.
+
+After Implementation Decomposition passes, the next step is Controlled
+Implementation — Wave 1, beginning with the Company Domain Foundation workstream.
 
 ## Next steps
 
@@ -49,11 +54,13 @@ Reconstruction Validation, then the Final Master Architecture Gate.
 4. Final Master Architecture / Design Gate — full gate review and PASS
    (COMPLETE / PASS / ACCEPTED)
 5. Implementation Decomposition — decompose architecture into bounded tasks
-   (NEXT PM PHASE; not yet started)
-6. Kilo execution-agent activation — authorized bounded task execution
-7. Controlled implementation — execute tasks under PM supervision
-8. MA-20 executable qualification — empirical proof of production fitness
-9. Release preparation — bring system to verifiable release state
+   (COMPLETE / PASS / ACCEPTED)
+6. Controlled Implementation — Wave 1: Company Domain Foundation + Principal Identity Integration
+   (SELECTED / NOT STARTED; FIRST CODING TASK NOT YET AUTHORIZED)
+7. Kilo execution-agent activation — authorized bounded task execution
+8. Controlled implementation — execute tasks under PM supervision
+9. MA-20 executable qualification — empirical proof of production fitness
+10. Release preparation — bring system to verifiable release state
 
 ## Notes
 

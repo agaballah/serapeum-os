@@ -2770,3 +2770,39 @@ sequence ID is the primary ordering key.
 - **Supersession:** N/A — historical gate verdict. Future material architecture
   or foundation changes require revalidation and a new gate decision; they do
   not erase this recorded verdict.
+
+---
+
+## D-268 — Implementation Decomposition Baseline Accepted
+
+- **Status:** LOCKED
+- **Decision:** TASK-006 Implementation Baseline Repository Mapping &
+  Decomposition = PASS / ACCEPTED. The implementation decomposition baseline is
+  now controlling for bounded implementation planning. The first selected product
+  implementation workstream is Company Domain Foundation + Principal Identity
+  Integration.
+- **Company-domain constraint:** Company is a distinct durable organizational
+  aggregate and is not a Principal or installation. Existing Ankole Principal
+  identity is reused. Every active Company has exactly one active human Company
+  Owner. Membership is distinct from permission. A SerapeumOS Agent Principal
+  belongs to exactly one Company. Company-scoped authoritative entities must
+  explicitly carry or resolve Company scope. An initial product may expose only
+  one active Company per installation, but installation == Company is not a core
+  identity invariant. Goal/Mission/Task belong to MA-04, not the MA-03 Company
+  aggregate.
+- **Sequencing:** Company identity/membership and AuthZ/Capability/Action
+  Assurance contracts have a coordinated interface dependency. The canonical
+  Goal→Mission→Task hierarchy consumes Company scope and required authorization
+  primitives. Hard Agent isolation remains independent of Company business
+  state. Release Envelope/package contract and install/update machinery have a
+  coordinated interface dependency. Qualification/evidence machinery is
+  established during controlled implementation; final empirical MA-20
+  qualification remains release-gated.
+- **Effect:** Implementation Decomposition is COMPLETE / PASS / ACCEPTED.
+  SerapeumOS may proceed to the first bounded PM-authorized implementation task.
+- **Limitations:** This decision does NOT mean product implementation has started.
+  It does NOT select a VMM/backend. It does NOT run MA-20. It does NOT authorize
+  release or MA-18 production activation. Runtime prototypes remain PAUSED.
+- **Supersession:** Implementation sequencing may be revised by a later explicit
+  PM/Owner implementation decision. Such revision does not reopen the locked
+  MA-01→MA-20 architecture unless a material architecture contradiction is found.
