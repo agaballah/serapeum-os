@@ -183,3 +183,14 @@ When delegating to another Project Manager AI, ensure:
 - PROJECT_STATE.md is current.
 - All locked decisions are recorded in DECISION_LOG.md.
 - This contract remains intact.
+- **SerapeumOS Workspace Containment Rule**: The canonical SerapeumOS project root is
+  `D:\SerapeumOS`. Project-managed SerapeumOS workspaces, clones, audit sandboxes,
+  implementation worktrees, temporary working artifacts, generated reports, build/test
+  outputs, packaging outputs, and other persistent project-owned artifacts MUST remain
+  inside `D:\SerapeumOS`. Do not create project-owned persistent directories beside the
+  repository such as `D:\SerapeumOS_*`. Before creating any workspace/path, verify that
+  its fully resolved path is beneath `D:\SerapeumOS`. If a task appears to require
+  project-owned persistent material outside the canonical root, STOP and escalate to
+  Owner rather than creating it. This rule does not redefine host-installed tools or
+  pre-existing operating system/toolchain facilities as SerapeumOS project artifacts,
+  but no new SerapeumOS project workspace may intentionally be placed outside the root.

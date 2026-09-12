@@ -2842,3 +2842,25 @@ sequence ID is the primary ordering key.
   MA-18 activation. Runtime prototypes remain PAUSED.
 - **Supersession:** Only by explicit later Owner instruction or a later PM
   sequencing decision consistent with Owner authority and locked architecture.
+
+## D-270 — SerapeumOS Workspace Containment
+
+- **Status:** LOCKED
+- **Owner instruction:** SerapeumOS project-owned persistent material must remain
+  beneath the canonical project root `D:\SerapeumOS`.
+- **Scope:** This includes project-managed clones, worktrees, audit sandboxes,
+  temporary working directories, generated reports, build/test outputs,
+  packaging outputs, and other persistent SerapeumOS working artifacts.
+- **Path rule:** Before creation, project-managed paths must resolve beneath
+  `D:\SerapeumOS`. Do not create sibling project directories such as
+  `D:\SerapeumOS_*`.
+- **Failure rule:** If a task appears to require project-owned persistent material
+  outside the canonical root, STOP and escalate instead of creating it.
+- **TASK-008 correction:** The previously specified
+  `D:\SerapeumOS_HYGIENE_AUDIT` location is invalid and superseded by an
+  in-repository ignored disposable workspace.
+- **Architecture effect:** None. This is repository/workspace governance and does
+  not reopen MA-01→MA-20.
+- **Implementation effect:** Product implementation remains NOT STARTED and
+  blocked pending Hygiene Gate.
+---
