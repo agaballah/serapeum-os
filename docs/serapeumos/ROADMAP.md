@@ -21,25 +21,26 @@
 
 ## Current phase
 
-**CONTROLLED IMPLEMENTATION — WAVE 1 PRE-CODE**
+**PRE-IMPLEMENTATION HYGIENE / IMPLEMENTATION READINESS**
 
-Current task: Implementation Decomposition Persistence / TASK-006-CLOSE.
+Current task: Repository-First Governance + Hygiene Gate Transition — TASK-007.
 
 ARCH-SYNC-01 documentation/governance synchronization is COMPLETED / ACCEPTED.
 Repository Persistence / Verification is COMPLETE / PASS / ACCEPTED. TASK-000
 Fresh-Agent Reconstruction Qualification is CLOSED / ACCEPTED; Attempt 1 = FAIL
 / NOT QUALIFIED; Attempt 2 = FAIL / NOT QUALIFIED; Attempt 3 = PASS / QUALIFIED.
-TASK-003 harness repair is CLOSED / ACCEPTED. TASK-04 precision repair is
+TASK-003 harness repair is CLOSED / ACCEPTED. TASK-004 precision repair is
 CLOSED / ACCEPTED. Fresh-Agent Reconstruction Validation is COMPLETE / PASS.
 Final Master Architecture / Design Gate is COMPLETE / PASS / ACCEPTED.
 Implementation Decomposition is COMPLETE / PASS / ACCEPTED.
 
-The first product implementation workstream is:
-**Company Domain Foundation + Principal Identity Integration** — SELECTED / NOT STARTED.
-FIRST CODING TASK = NOT YET AUTHORIZED.
+The selected first implementation workstream is:
+**Company Domain Foundation + Principal Identity Integration** — SELECTED /
+BLOCKED PENDING HYGIENE GATE.
 
-After Implementation Decomposition passes, the next step is Controlled
-Implementation — Wave 1, beginning with the Company Domain Foundation workstream.
+Mandatory sequence before any product implementation:
+Repository-First governance transition → Repository Hygiene audit → Bounded
+hygiene repairs if required → Hygiene Gate PASS → first bounded product coding task.
 
 ## Next steps
 
@@ -55,12 +56,16 @@ Implementation — Wave 1, beginning with the Company Domain Foundation workstre
    (COMPLETE / PASS / ACCEPTED)
 5. Implementation Decomposition — decompose architecture into bounded tasks
    (COMPLETE / PASS / ACCEPTED)
-6. Controlled Implementation — Wave 1: Company Domain Foundation + Principal Identity Integration
-   (SELECTED / NOT STARTED; FIRST CODING TASK NOT YET AUTHORIZED)
-7. Kilo execution-agent activation — authorized bounded task execution
-8. Controlled implementation — execute tasks under PM supervision
-9. MA-20 executable qualification — empirical proof of production fitness
-10. Release preparation — bring system to verifiable release state
+6. Repository-First Governance + Hygiene Gate Transition — CURRENT / TASK-007
+7. Repository Hygiene / Implementation-Readiness Audit — NEXT / READ-ONLY
+8. Bounded Repository Hygiene Corrections — IF REQUIRED
+9. Repository Hygiene Gate — MUST PASS BEFORE PRODUCT CODING
+10. Controlled Implementation — Wave 1: Company Domain Foundation + Principal Identity Integration
+    — SELECTED / BLOCKED PENDING HYGIENE GATE
+11. Kilo execution-agent activation — authorized bounded task execution
+12. Controlled implementation — execute tasks under PM supervision
+13. MA-20 executable qualification — empirical proof of production fitness
+14. Release preparation — bring system to verifiable release state
 
 ## Notes
 

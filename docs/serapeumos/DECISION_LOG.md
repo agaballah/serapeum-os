@@ -2806,3 +2806,39 @@ sequence ID is the primary ordering key.
 - **Supersession:** Implementation sequencing may be revised by a later explicit
   PM/Owner implementation decision. Such revision does not reopen the locked
   MA-01→MA-20 architecture unless a material architecture contradiction is found.
+
+---
+
+## D-269 — Repository-First Project Management and Mandatory Hygiene Gate
+
+- **Status:** LOCKED
+- **Owner instruction:** The Project Manager must not operate from chat/model
+  memory alone. Before every SerapeumOS management response, decision,
+  authorization, acceptance/rejection, sequencing decision, or factual
+  project-state claim, the Project Manager must access the authoritative
+  repository and verify the relevant current repository truth and governing
+  contracts. Chat/model memory may assist navigation only.
+- **Repository-unavailable rule:** If authoritative repository access is
+  unavailable, the Project Manager must not make an authoritative project
+  decision or issue an implementation/governance authorization from chat/model
+  memory alone.
+- **Durability rule:** Explicit current Owner instruction remains highest
+  authority. When it changes durable project truth, the change must be persisted
+  into the repository before being treated as durable project state.
+- **Hygiene decision:** Product implementation may not begin until Repository
+  Hygiene / Implementation Readiness has been audited, required corrections have
+  been accepted, and the Repository Hygiene Gate has PASS / ACCEPTED status.
+- **Implementation effect:** The Company Domain Foundation + Principal Identity
+  Integration workstream remains SELECTED but is BLOCKED FROM CODING pending the
+  Hygiene Gate.
+- **Sequence:** TASK-007 governance persistence → Repository Hygiene audit →
+  bounded repairs if needed → Hygiene Gate PASS → first bounded product coding
+  task.
+- **Historical continuity:** D-268 remains valid as the accepted Implementation
+  Decomposition baseline. D-269 changes the pre-coding admission sequence; it
+  does not reopen MA-01→MA-20 or invalidate TASK-006.
+- **Limitations:** This decision does not start product implementation, does not
+  select a VMM/backend, does not run MA-20, and does not authorize release or
+  MA-18 activation. Runtime prototypes remain PAUSED.
+- **Supersession:** Only by explicit later Owner instruction or a later PM
+  sequencing decision consistent with Owner authority and locked architecture.

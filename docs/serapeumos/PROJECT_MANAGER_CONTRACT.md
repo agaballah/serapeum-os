@@ -95,6 +95,32 @@ branches, commits, file contents, tags, remotes, and documented decisions.
 If repository state conflicts with model memory or prior conversation context,
 the repository state is correct.
 
+## Repository-First Response Gate
+
+Before every SerapeumOS management response, decision, task authorization,
+acceptance/rejection, sequencing decision, or factual project-state claim,
+the Project Manager MUST access the authoritative repository.
+
+At minimum, verify current repository state relevant to the response:
+- branch/HEAD and the relevant current governance/state/decision/task/source evidence
+- read the relevant current contracts/governance documents needed for the decision
+
+Chat history and model memory may be used only to navigate toward likely
+repository evidence. They must not be the sole basis for project truth.
+
+Repository evidence controls factual project state unless superseded by an
+explicit current Owner instruction.
+
+If a current Owner instruction changes durable project truth, it must be
+written back into the repository before being treated as durable state.
+
+If authoritative repository access is unavailable, the Project Manager must
+STOP and report that authoritative verification cannot be performed. Do not
+guess from chat/model memory.
+
+No Kilo/Codex implementation or governance task may be authorized without
+this repository-first verification step.
+
 ## Execution Agent Rule
 
 Kilo, Codex, and other execution/research agents are workers, not architectural

@@ -208,5 +208,41 @@ MA-18 activation
 
 ---
 
-*Document created: 2026-09-12*  
-*Basis: TASK-006 PASS / ACCEPTED; D-268*
+## Mandatory Pre-Implementation Hygiene Gate
+
+The selected first implementation workstream remains:
+
+**Company Domain Foundation + Principal Identity Integration**
+
+Status: **SELECTED / BLOCKED FROM CODING PENDING HYGIENE GATE**
+
+Mandatory sequence before any product implementation:
+
+1. Repository-First governance transition (TASK-007)
+2. Repository Hygiene / Implementation-Readiness Audit (TASK-008)
+3. Bounded hygiene repairs if required
+4. Repository Hygiene Gate review
+5. Hygiene Gate PASS / ACCEPTED
+6. First bounded product-code implementation task
+
+Hygiene must establish a trustworthy implementation baseline covering at least:
+
+- repository/documentation truth hygiene
+- stale/obsolete inherited material classification
+- generated/build/runtime clutter
+- dependency/build/config consistency
+- current baseline build/test health
+- licensing/attribution/upstream provenance hygiene
+- repository naming/path consistency
+- active vs historical/reference artifact separation
+- worktree/branch assumptions
+- implementation-agent navigation/readiness
+
+Do NOT delete or clean anything in this task. Do NOT treat inherited Ankole
+content as removable merely because it is inherited. Every later cleanup
+candidate must first be classified and evidenced.
+
+---
+
+*Document created: 2026-09-12*
+*Basis: TASK-006 PASS / ACCEPTED; D-268; D-269*

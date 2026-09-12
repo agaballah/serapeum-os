@@ -23,14 +23,14 @@
 
 ## Development status
 
-- **Current phase:** CONTROLLED IMPLEMENTATION — WAVE 1 PRE-CODE
-- **Implementation:** NOT STARTED — FIRST CODING TASK NOT YET AUTHORIZED
-- **Current active work:** Implementation Decomposition Persistence / TASK-006-CLOSE
-- **Next gate:** FIRST BOUNDED IMPLEMENTATION TASK AUTHORIZATION
-- **Next action:** Project Manager issues TASK-007 for the first bounded Company Domain implementation slice after TASK-006-CLOSE is accepted
+- **Current phase:** PRE-IMPLEMENTATION HYGIENE / IMPLEMENTATION READINESS
+- **Implementation:** NOT STARTED — BLOCKED PENDING HYGIENE GATE
+- **Current active work:** Repository-First Governance + Hygiene Gate Transition — TASK-007
+- **Next gate:** REPOSITORY HYGIENE / IMPLEMENTATION-READINESS GATE
+- **Next action:** Complete TASK-007 persistence, then Project Manager authorizes TASK-008 Repository Hygiene / Implementation-Readiness Audit
 - **Final Master Architecture / Design Gate:** PASS / ACCEPTED / COMPLETED
 - **Implementation Decomposition:** PASS / ACCEPTED / COMPLETED
-- **First implementation workstream:** Company Domain Foundation + Principal Identity Integration — SELECTED / NOT STARTED
+- **First implementation workstream:** Company Domain Foundation + Principal Identity Integration — SELECTED / BLOCKED PENDING HYGIENE GATE
 - **MA-20 executable qualification:** NOT RUN
 - **Runtime prototypes:** PAUSED
 - **Assigned task spec:** docs/serapeumos/tasks/TASK-000_REPOSITORY_RECONSTRUCTION_QUALIFICATION.md
@@ -38,8 +38,8 @@
 ## Last updated
 
 - **Date:** 2026-09-12
-- **Milestone:** Implementation Decomposition = PASS / ACCEPTED; First workstream SELECTED; TASK-006-CLOSE in progress
-- **Next immediate action:** Project Manager issues TASK-007 for the first bounded Company Domain implementation slice after TASK-006-CLOSE is accepted
+- **Milestone:** Repository-First Governance + Hygiene Gate Transition — TASK-007
+- **Next immediate action:** Complete TASK-007 persistence, then Project Manager authorizes TASK-008 Repository Hygiene / Implementation-Readiness Audit
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
 is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE — MA-01→MA-20
@@ -50,9 +50,9 @@ is PASS / ACCEPTED / completed. Fresh-Agent Reconstruction Validation is PASS
 / COMPLETED. Final Master Architecture / Design Gate is PASS / ACCEPTED /
 COMPLETED. Implementation Decomposition is PASS / ACCEPTED / COMPLETED. The
 first product implementation workstream (Company Domain Foundation + Principal
-Identity Integration) is SELECTED / NOT STARTED. Implementation remains NOT
-STARTED — first coding task not yet authorized. MA-20 executable qualification
-remains NOT RUN. Runtime prototypes remain PAUSED.
+Identity Integration) is SELECTED but BLOCKED FROM CODING PENDING HYGIENE GATE.
+Implementation remains NOT STARTED — blocked pending Hygiene Gate. MA-20
+executable qualification remains NOT RUN. Runtime prototypes remain PAUSED.
 
 ## Update discipline
 
