@@ -25,21 +25,21 @@
 
 - **Current phase:** PRE-IMPLEMENTATION HYGIENE / IMPLEMENTATION READINESS
 - **Implementation:** NOT STARTED — BLOCKED PENDING HYGIENE GATE
-- **Current active work:** Repository-First Governance + Hygiene Gate Transition — TASK-007
+- **Current active work:** TASK-008 Repository Hygiene / Implementation-Readiness Audit — AUTHORIZED / NOT YET EXECUTED
 - **Next gate:** REPOSITORY HYGIENE / IMPLEMENTATION-READINESS GATE
-- **Next action:** Complete TASK-007 persistence, then Project Manager authorizes TASK-008 Repository Hygiene / Implementation-Readiness Audit
+- **Next action:** Execution agent performs TASK-008 read-only hygiene audit and returns evidence for Project Manager review.
 - **Final Master Architecture / Design Gate:** PASS / ACCEPTED / COMPLETED
 - **Implementation Decomposition:** PASS / ACCEPTED / COMPLETED
 - **First implementation workstream:** Company Domain Foundation + Principal Identity Integration — SELECTED / BLOCKED PENDING HYGIENE GATE
 - **MA-20 executable qualification:** NOT RUN
 - **Runtime prototypes:** PAUSED
-- **Assigned task spec:** docs/serapeumos/tasks/TASK-000_REPOSITORY_RECONSTRUCTION_QUALIFICATION.md
+- **Assigned task spec:** docs/serapeumos/tasks/TASK-008_REPOSITORY_HYGIENE_IMPLEMENTATION_READINESS_AUDIT.md
 
 ## Last updated
 
 - **Date:** 2026-09-12
-- **Milestone:** Repository-First Governance + Hygiene Gate Transition — TASK-007
-- **Next immediate action:** Complete TASK-007 persistence, then Project Manager authorizes TASK-008 Repository Hygiene / Implementation-Readiness Audit
+- **Milestone:** TASK-007 CLOSED / TASK-008 AUTHORIZED
+- **Next immediate action:** Execute TASK-008 read-only hygiene audit and return evidence for PM review.
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
 is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE — MA-01→MA-20

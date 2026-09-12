@@ -23,7 +23,7 @@
 
 **PRE-IMPLEMENTATION HYGIENE / IMPLEMENTATION READINESS**
 
-Current task: Repository-First Governance + Hygiene Gate Transition — TASK-007.
+Current task: Repository Hygiene / Implementation-Readiness Audit — TASK-008.
 
 ARCH-SYNC-01 documentation/governance synchronization is COMPLETED / ACCEPTED.
 Repository Persistence / Verification is COMPLETE / PASS / ACCEPTED. TASK-000
@@ -56,8 +56,8 @@ hygiene repairs if required → Hygiene Gate PASS → first bounded product codi
    (COMPLETE / PASS / ACCEPTED)
 5. Implementation Decomposition — decompose architecture into bounded tasks
    (COMPLETE / PASS / ACCEPTED)
-6. Repository-First Governance + Hygiene Gate Transition — CURRENT / TASK-007
-7. Repository Hygiene / Implementation-Readiness Audit — NEXT / READ-ONLY
+6. Repository-First Governance + Hygiene Gate Transition — COMPLETE / PASS / ACCEPTED / TASK-007 CLOSED
+7. Repository Hygiene / Implementation-Readiness Audit — CURRENT / TASK-008 AUTHORIZED / READ-ONLY
 8. Bounded Repository Hygiene Corrections — IF REQUIRED
 9. Repository Hygiene Gate — MUST PASS BEFORE PRODUCT CODING
 10. Controlled Implementation — Wave 1: Company Domain Foundation + Principal Identity Integration
