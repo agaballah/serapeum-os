@@ -8,8 +8,38 @@ Authority:
 - PROJECT_MANAGER_CONTRACT.md — Repository-First Response Gate
 - IMPLEMENTATION_DECOMPOSITION_BASELINE.md — Mandatory Pre-Implementation Hygiene Gate
 
-Authoritative baseline at authorization:
+Authorization-parent baseline:
 78e68baabbeb9b00855dab6fd02139da0ba5da36
+
+Audit execution baseline:
+
+At the beginning of TASK-008 execution, the execution agent MUST verify the
+current canonical `origin/main` / `main` HEAD.
+
+That exact verified SHA becomes TASK-008_EXECUTION_BASELINE.
+
+All isolated empirical hygiene/build/test work must be performed from a
+disposable clone checked out at TASK-008_EXECUTION_BASELINE.
+
+The audit must evaluate current repository truth at TASK-008_EXECUTION_BASELINE,
+not the historical authorization-parent SHA.
+
+The report must explicitly record:
+
+- AUTHORIZATION_PARENT_BASELINE
+- TASK-008_EXECUTION_BASELINE
+- confirmation that execution baseline == canonical origin/main at audit start
+
+If canonical main changes after TASK-008 execution begins:
+
+- do NOT silently move the audit baseline;
+- record repository drift;
+- stop any conclusion that depends on the changed content;
+- report the drift to the Project Manager for disposition.
+
+Canonical D:\SerapeumOS remains read-only.
+
+_archsync_input/ remains untouched and uninspected.
 
 OBJECTIVE:
 
