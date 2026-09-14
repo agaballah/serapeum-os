@@ -115,3 +115,5 @@ app/kernel/priv/native/
 /.claude/
 /.zcode/
 HEY.md
+.env.dev
+.env.test
