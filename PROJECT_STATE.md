@@ -25,9 +25,9 @@
 
 - **Current phase:** PRE-IMPLEMENTATION HYGIENE / IMPLEMENTATION READINESS
 - **Implementation:** NOT STARTED — BLOCKED PENDING HYGIENE GATE
-- **Current active work:** TASK-008 Repository Hygiene / Implementation-Readiness Audit — AUTHORIZED / NOT YET EXECUTED
+- **Current active work:** TASK-008 Repository Hygiene / Implementation-Readiness Audit — EVIDENCE_COLLECTED / R6 REPAIR COMMITTED
 - **Next gate:** REPOSITORY HYGIENE / IMPLEMENTATION-READINESS GATE
-- **Next action:** Execution agent performs TASK-008 read-only hygiene audit and returns evidence for Project Manager review.
+- **Next action:** Project Manager reviews R5 findings register and R6 repair commit (81b4b82a); makes Hygiene Gate PASS/FAIL decision.
 - **Final Master Architecture / Design Gate:** PASS / ACCEPTED / COMPLETED
 - **Implementation Decomposition:** PASS / ACCEPTED / COMPLETED
 - **First implementation workstream:** Company Domain Foundation + Principal Identity Integration — SELECTED / BLOCKED PENDING HYGIENE GATE
@@ -37,9 +37,9 @@
 
 ## Last updated
 
-- **Date:** 2026-09-12
-- **Milestone:** TASK-007 CLOSED / TASK-008 AUTHORIZED
-- **Next immediate action:** Execute TASK-008 read-only hygiene audit and return evidence for PM review.
+- **Date:** 2026-09-14
+- **Milestone:** TASK-008 R5 findings collected; R6 security repair committed (81b4b82a); pending PM Hygiene Gate decision
+- **Next immediate action:** PM reviews R5 findings register, R6 repair, and DEFERRED items (HYGIENE-001/003/004/005); makes HYGIENE_GATE decision.
 
 Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
 is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE — MA-01→MA-20

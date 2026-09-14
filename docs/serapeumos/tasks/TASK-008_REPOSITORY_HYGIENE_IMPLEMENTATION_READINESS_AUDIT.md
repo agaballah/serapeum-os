@@ -436,6 +436,56 @@ PM makes the actual Hygiene Gate decision.
 
 14. Isolated audit workspace disposition
 
+---
+
+## R5 FINDINGS REGISTER (executed 2026-09-14, baseline 6ee99e44)
+
+| ID | Area | Severity | Status | Gate Impact | Path |
+|----|------|----------|--------|-------------|------|
+| HYGIENE-001 | docs/README identity | LOW | OPEN_DEFERRED | REVIEW_REQUIRED | README.md:1-9 |
+| HYGIENE-002 | docs/CONTEXT.md inherited | INFO | ACCEPTED | DOES_NOT_BLOCK_GATE | CONTEXT.md |
+| HYGIENE-003 | docs/PROJECT_STATE stale | MEDIUM | OPEN_DEFERRED | REVIEW_REQUIRED | PROJECT_STATE.md:40 |
+| HYGIENE-004 | package.json name drift | LOW | OPEN_DEFERRED | REVIEW_REQUIRED | package.json:2 |
+| HYGIENE-005 | bun.lock consistency blocked | BLOCKED | OPEN_DEFERRED | REVIEW_REQUIRED | bun.lock |
+| HYGIENE-006 | prunable worktree entry | LOW | RESOLVED | DOES_NOT_BLOCK_GATE | .git/worktrees/ (pruned) |
+| HYGIENE-007 | kernel JS wrapper tracked | INFO | ACCEPTED | DOES_NOT_BLOCK_GATE | app/kernel/{index,main}.js |
+| HYGIENE-008 | validation retained dir | INFO | ACCEPTED | DOES_NOT_BLOCK_GATE | temp/TASK-000_VALIDATION_retained/ |
+| HYGIENE-009 | committed secret material | **BLOCKER** | **RESOLVED** | **BLOCKS_GATE** | app/control_plane/.env.dev, .env.test |
+| HYGIENE-010 | .gitignore env gap | **HIGH** | **RESOLVED** | **BLOCKS_GATE** | .gitignore |
+
+**Open deferral actions:**
+- HYGIENE-001: Add SerapeumOS downstream declaration to root README
+- HYGIENE-003: Update PROJECT_STATE.md with R5/R6 results
+- HYGIENE-004: Rename package.json from @agentbull/ankole to SerapeumOS identifier
+- HYGIENE-005: Verify bun.lock consistency when PM authorizes dependency install
+
+**Open operator action (NOT in git scope):**
+- SECRET_ROTATION_REQUIRED: Both ANKOLE_SECRET_BASE values from pre-R6 commits must be rotated. They remain visible in git history.
+
+**R5 executive verdict:** HYGIENE_REPAIRS_REQUIRED — two coupled BLOCKER findings resolved by R6; four deferred items remain for PM review.
+
+---
+
+## R6 SECURITY REPAIR LOG (executed 2026-09-14)
+
+| Item | Detail |
+|------|--------|
+| Commit | 81b4b82a |
+| Message | TASK-008-R6 security hygiene repair: remove committed env secrets and add env templates |
+| Pushed to origin/main | yes |
+| Files changed | .gitignore (+2), app/control_plane/.env.local.example (+5), app/control_plane/.env.dev (deleted), app/control_plane/.env.test (deleted) |
+| HYGIENE-009 | RESOLVED — secrets removed from tracking and disk; .gitignore updated |
+| HYGIENE-010 | RESOLVED — .env.dev and .env.test added to .gitignore; template populated |
+| SECRET_ROTATION_REQUIRED | OPEN — operator must rotate both previously-committed ANKOLE_SECRET_BASE values |
+
+---
+
+## R6 COMMIT AUTHORIZATION
+
+Commit 81b4b82a approved and pushed to origin/main by PM authorization.
+
+No history rewrite. No force push. Linear fast-forward from 6ee99e44.
+
 End exactly:
 
 READY FOR PROJECT MANAGER HYGIENE AUDIT REVIEW
