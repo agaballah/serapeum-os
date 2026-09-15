@@ -28,7 +28,7 @@ defmodule Ankole.Company do
     field :uid, :string
     field :name, :string
     field :display_name, :string
-    field :status, Ecto.Enum, values: [:active, :disabled], default: :active
+    field :status, Ecto.Enum, values: [:created, :active, :suspended, :archived], default: :created
     field :metadata, :map, default: %{}
 
     belongs_to :owner_principal, Principal,

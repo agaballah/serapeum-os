@@ -4,25 +4,92 @@ defmodule Ankole.CompanyTest do
   alias Ankole.Company
 
   describe "changeset" do
-    test "valid attrs produce a valid changeset" do
+    test "valid attrs produce a valid changeset with default status" do
       attrs = %{
         uid: "test-company-001",
         name: "acme-corp",
         display_name: "Acme Corporation",
-        status: :active,
         metadata: %{},
         owner_principal_uid: "owner-uid-123"
       }
 
       cs = Company.changeset(%Company{}, attrs)
       assert cs.valid?
-      assert get_field(cs, :name) == "acme-corp"
-      assert get_field(cs, :display_name) == "Acme Corporation"
+      assert get_field(cs, :status) == :created
+    end
+
+    test ":created status is valid" do
+      cs = Company.changeset(%Company{}, %{
+        uid: "test-1",
+        name: "test-corp",
+        display_name: "Test",
+        status: :created,
+        metadata: %{},
+        owner_principal_uid: "owner-1"
+      })
+
+      assert cs.valid?
+      assert get_field(cs, :status) == :created
+    end
+
+    test ":active status is valid" do
+      cs = Company.changeset(%Company{}, %{
+        uid: "test-2",
+        name: "active-corp",
+        display_name: "Active",
+        status: :active,
+        metadata: %{},
+        owner_principal_uid: "owner-2"
+      })
+
+      assert cs.valid?
       assert get_field(cs, :status) == :active
     end
 
+    test ":suspended status is valid" do
+      cs = Company.changeset(%Company{}, %{
+        uid: "test-3",
+        name: "susp-corp",
+        display_name: "Suspended",
+        status: :suspended,
+        metadata: %{},
+        owner_principal_uid: "owner-3"
+      })
+
+      assert cs.valid?
+      assert get_field(cs, :status) == :suspended
+    end
+
+    test ":archived status is valid" do
+      cs = Company.changeset(%Company{}, %{
+        uid: "test-4",
+        name: "arch-corp",
+        display_name: "Archived",
+        status: :archived,
+        metadata: %{},
+        owner_principal_uid: "owner-4"
+      })
+
+      assert cs.valid?
+      assert get_field(cs, :status) == :archived
+    end
+
+    test ":disabled status is rejected" do
+      cs = Company.changeset(%Company{}, %{
+        uid: "test-disabled",
+        name: "disabled-corp",
+        display_name: "Disabled",
+        status: :disabled,
+        metadata: %{},
+        owner_principal_uid: "owner-5"
+      })
+
+      assert not cs.valid?
+      assert cs.errors[:status]
+    end
+
     test "invalid when required fields are missing" do
-      cs = Company.changeset(%Company{}, %{uid: "x", status: :active, metadata: %{}})
+      cs = Company.changeset(%Company{}, %{uid: "x", metadata: %{}})
       assert not cs.valid?
       assert cs.errors[:name]
       assert cs.errors[:display_name]
@@ -34,7 +101,7 @@ defmodule Ankole.CompanyTest do
         uid: "trim-test",
         name: "trim-test",
         display_name: "   ",
-        status: :active,
+        status: :created,
         metadata: %{},
         owner_principal_uid: "owner-uid"
       })
@@ -48,7 +115,7 @@ defmodule Ankole.CompanyTest do
         uid: "lower-test",
         name: "ACME-CORP",
         display_name: "Acme Corp",
-        status: :active,
+        status: :created,
         metadata: %{},
         owner_principal_uid: "owner-uid"
       })
@@ -62,7 +129,7 @@ defmodule Ankole.CompanyTest do
         uid: "short-name",
         name: "ab",
         display_name: "Ab",
-        status: :active,
+        status: :created,
         metadata: %{},
         owner_principal_uid: "owner-uid"
       })
@@ -77,7 +144,7 @@ defmodule Ankole.CompanyTest do
         uid: "long-name",
         name: long_name,
         display_name: "Long",
-        status: :active,
+        status: :created,
         metadata: %{},
         owner_principal_uid: "owner-uid"
       })
@@ -90,7 +157,7 @@ defmodule Ankole.CompanyTest do
         uid: "upper-name",
         name: "ACME-CORP",
         display_name: "Acme Corp",
-        status: :active,
+        status: :created,
         metadata: %{},
         owner_principal_uid: "owner-uid"
       })
@@ -104,7 +171,7 @@ defmodule Ankole.CompanyTest do
         uid: "bad-chars",
         name: "acme corp!",
         display_name: "Acme Corp",
-        status: :active,
+        status: :created,
         metadata: %{},
         owner_principal_uid: "owner-uid"
       })
@@ -132,7 +199,7 @@ defmodule Ankole.CompanyTest do
         uid: "orphan",
         name: "orphan-company",
         display_name: "Orphan Company",
-        status: :active,
+        status: :created,
         metadata: %{},
         owner_principal_uid: "nonexistent-uid-that-does-not-exist-in-db"
       })
