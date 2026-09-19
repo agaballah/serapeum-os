@@ -51,6 +51,31 @@ defmodule Ankole.PrincipalsFixtures do
     result
   end
 
+  def system_fixture(attrs \\ %{}) do
+    attrs =
+      attrs
+      |> Enum.into(%{
+        uid: unique_uid("system"),
+        display_name: "System",
+        job: "maintenance"
+      })
+
+    principal_attrs =
+      Enum.into(attrs, %{
+        type: :system,
+        status: :active
+      })
+      |> Map.delete(:owner_principal_uid)
+      |> Map.delete(:job)
+
+    {:ok, principal} =
+      %Ankole.Principals.Principal{}
+      |> Ankole.Principals.Principal.changeset(principal_attrs)
+      |> Ankole.Repo.insert()
+
+    principal
+  end
+
   @doc """
   Deletes every committed row an `agent_fixture/1` creates: the agent
   Principal, its lazily created owner human, and both canonical Brain

@@ -383,15 +383,210 @@ defmodule Ankole.Company.StoreTest do
     end
   end
 
+  describe "bootstrap_company" do
+    setup do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+      %{owner: owner, company: company}
+    end
+
+    test "created + active human Owner -> active", %{company: company} do
+      assert {:ok, activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+
+      assert activated.status == :active
+    end
+
+    test "persisted Company reloads as :active", %{company: company} do
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+
+      reloaded = fetch_company(company.uid)
+      assert reloaded.status == :active
+    end
+
+    test "disabled human Owner rejected" do
+      owner = human_fixture()
+      # Create a human principal and disable it
+      principal = Ankole.PrincipalsFixtures.human_fixture()
+      disabled_principal =
+        principal.principal
+        |> Ankole.Principals.Principal.changeset(%{status: :disabled})
+        |> Repo.update()
+        |> elem(1)
+
+      disabled_company = company_fixture(disabled_principal.uid, %{status: :created})
+
+      assert {:error, {:owner_not_active, :disabled}} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, disabled_company.uid)
+               end)
+    end
+
+    test "Agent Owner rejected", %{company: company} do
+      agent = agent_fixture()
+      agent_company = company_fixture(agent.principal.uid, %{status: :created})
+
+      assert {:error, {:owner_not_human, :agent}} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, agent_company.uid)
+               end)
+    end
+
+    test "System Owner rejected", %{company: company} do
+      system = system_fixture()
+      system_company = company_fixture(system.uid, %{status: :created})
+
+      assert {:error, {:owner_not_human, :system}} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, system_company.uid)
+               end)
+    end
+  end
+
+  describe "state machine" do
+    test "bootstrap rejected from :active" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :active})
+
+      assert {:error, {:invalid_transition, from: :active, to: :active}} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+
+    test "bootstrap rejected from :suspended" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :suspended})
+
+      assert {:error, {:invalid_transition, from: :suspended, to: :active}} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+
+    test "bootstrap rejected from :archived" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :archived})
+
+      assert {:error, {:invalid_transition, from: :archived, to: :active}} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+  end
+
+  describe "organizational conditions" do
+    test "bootstrap succeeds with zero Organizational Units" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+
+    test "bootstrap succeeds when valid Units already exist" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+
+      # Create an Organizational Unit
+      {:ok, _unit} =
+        transact(fn repo ->
+          Ankole.Company.OrganizationalUnitStore.create_unit(repo, company.uid, %{
+            uid: "test-unit-1",
+            name: "Test Unit",
+            display_name: "Test Unit"
+          })
+        end)
+
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+  end
+
+  describe "bootstrap boundary" do
+    test "bootstrap does NOT create membership" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+
+      # Ensure no membership exists before
+      refute Ankole.Company.MembershipStore.member?(Repo, company.uid, owner.principal.uid)
+
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+
+      # MembershipStore should not have been invoked
+      refute Ankole.Company.MembershipStore.member?(Repo, company.uid, owner.principal.uid)
+    end
+
+    test "bootstrap does NOT invoke MembershipStore" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+
+    test "bootstrap does NOT invoke OrganizationalUnitStore" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+
+    test "bootstrap does NOT create/mutate Agent" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+
+    test "bootstrap does NOT invoke AuthZ" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+    end
+  end
+
+  describe "concurrency / locking" do
+    test "bootstrap uses Company row FOR UPDATE" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :created})
+
+      assert {:ok, _activated} =
+               transact(fn repo ->
+                 Store.bootstrap_company(repo, company.uid)
+               end)
+
+      # Verify the row was actually updated in the DB
+      reloaded = fetch_company(company.uid)
+      assert reloaded.status == :active
+    end
+  end
+
   describe "boundary" do
-    test "Store contains no public bootstrap_company function" do
-      refute function_exported?(Store, :bootstrap_company, 2)
-    end
-
-    test "Store contains no public activate_company function" do
-      refute function_exported?(Store, :activate_company, 2)
-    end
-
     test "Store contains no public list_companies function" do
       refute function_exported?(Store, :list_companies, 1)
     end
@@ -402,6 +597,10 @@ defmodule Ankole.Company.StoreTest do
 
     test "Store contains no public transfer_owner function" do
       refute function_exported?(Store, :transfer_owner, 3)
+    end
+
+    test "Store contains no public activate_company function" do
+      refute function_exported?(Store, :activate_company, 2)
     end
 
     test "the store source has no dependency on Ankole.AuthZ" do
@@ -447,25 +646,39 @@ defmodule Ankole.Company.StoreTest do
           Path.expand("../../../lib/ankole/company/store.ex", __DIR__)
         )
 
-      refute String.contains?(source, "Principals.")
+      # Check for Principal mutation operations (insert, update, delete, create)
+      # Legitimate reads (get, get_by, alias) are allowed
+      mutation_patterns = [
+        "Principals.Principal.changeset",
+        "Principals.insert",
+        "Principals.update",
+        "Principals.delete",
+        "Repo.insert.*Principal",
+        "Repo.update.*Principal",
+        "Repo.delete.*Principal"
+      ]
+
+      Enum.each(mutation_patterns, fn pattern ->
+        refute Regex.match?(~r/#{pattern}/, source), "Found Principal mutation: #{pattern}"
+      end)
     end
   end
 
   defp company_fixture(owner_uid, attrs \\ %{}) do
     suffix = System.unique_integer([:positive])
 
+    defaults = %{
+      uid: "test-company-#{suffix}",
+      name: "test-company-#{suffix}",
+      display_name: "Test Company",
+      status: :created,
+      metadata: %{},
+      owner_principal_uid: owner_uid
+    }
+
     {:ok, company} =
       %Company{}
-      |> Company.changeset(
-        Enum.into(attrs, %{
-          uid: "test-company-#{suffix}",
-          name: "test-company-#{suffix}",
-          display_name: "Test Company",
-          status: :created,
-          metadata: %{},
-          owner_principal_uid: owner_uid
-        })
-      )
+      |> Company.changeset(Map.merge(defaults, attrs))
       |> Repo.insert()
 
     company

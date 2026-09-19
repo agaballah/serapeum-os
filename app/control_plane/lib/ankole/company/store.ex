@@ -4,12 +4,13 @@ defmodule Ankole.Company.Store do
 
   Functions take the `repo` of the surrounding `Ankole.Repo.transact/2`
   callback. Domain-changing operations acquire the Company row lock inside
-  that transaction. This layer performs no bootstrap/activation logic.
+  that transaction.
   """
 
   import Ecto.Query
 
   alias Ankole.Company
+  alias Ankole.Principals.Principal
 
   @doc """
   Creates a durable Company in :created status.
@@ -97,6 +98,29 @@ defmodule Ankole.Company.Store do
     transition_company(repo, company_uid, :archived, [:active, :suspended])
   end
 
+  @doc """
+  Bootstraps a Company from :created to :active.
+
+  Requires the Company to be in :created status with an active human Owner.
+
+  This is the single bootstrap/activation entry point for W1.
+  """
+  @spec bootstrap_company(Ecto.Repo.t(), String.t()) ::
+          {:ok, Company.t()} | {:error, term()}
+  def bootstrap_company(repo, company_uid) do
+    with {:ok, company} <- fetch_company_for_update(repo, company_uid),
+         :ok <- validate_bootstrap_source_status(company.status),
+         :ok <- validate_active_human_owner(repo, company.owner_principal_uid) do
+      Company.changeset(company, %{status: :active})
+      |> repo.update()
+    end
+  end
+
+  defp validate_bootstrap_source_status(:created), do: :ok
+  defp validate_bootstrap_source_status(status) do
+    {:error, {:invalid_transition, from: status, to: :active}}
+  end
+
   defp fetch_company_for_update(repo, company_uid) do
     case repo.one(
            from company in Company,
@@ -132,6 +156,15 @@ defmodule Ankole.Company.Store do
       :ok
     else
       {:error, {:invalid_transition, from: current, to: target}}
+    end
+  end
+
+  defp validate_active_human_owner(repo, owner_uid) do
+    case repo.get(Principal, owner_uid) do
+      %Principal{type: :human, status: :active} -> :ok
+      nil -> {:error, :owner_not_found}
+      %Principal{type: :human, status: status} -> {:error, {:owner_not_active, status}}
+      %Principal{type: type} -> {:error, {:owner_not_human, type}}
     end
   end
 end
