@@ -21,6 +21,8 @@ defmodule Ankole.Principals do
   alias Ankole.AgentHomePaths
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
+  alias Ankole.Company
+  alias Ankole.Company.MembershipStore
 
   @principal_profile_fields [:display_name, :avatar_url]
   @human_profile_fields [:email, :mobile, :job_title]
@@ -198,6 +200,7 @@ defmodule Ankole.Principals do
       with {:ok, principal} <- fetch_principal_for_update(repo, uid),
            :ok <- ensure_principal_type(principal, :agent),
            :ok <- validate_agent_owner(repo, agent_attrs),
+           :ok <- validate_bound_agent_company_owner(repo, principal.uid, agent_attrs),
            {:ok, principal} <- update_principal_profile(repo, principal, attrs),
            {:ok, agent} <- update_agent_row(repo, principal.uid, agent_attrs) do
         {:ok, %{principal: principal, agent: agent}}
@@ -552,6 +555,36 @@ defmodule Ankole.Principals do
         end
 
       _absent_or_blank ->
+        :ok
+    end
+  end
+
+  # Validates that if a bound Agent's owner is being changed, the new owner
+  # must match the Company Owner of the bound Company.
+  defp validate_bound_agent_company_owner(repo, agent_uid, attrs) do
+    case Map.fetch(attrs, :owner_principal_uid) do
+      {:ok, new_owner_uid} when is_binary(new_owner_uid) and new_owner_uid != "" ->
+        case MembershipStore.company_uids_for_principal(repo, agent_uid) do
+          [] ->
+            :ok
+
+          [company_uid] ->
+            case repo.get_by(Company, uid: company_uid) do
+              %Company{owner_principal_uid: ^new_owner_uid} ->
+                :ok
+
+              %Company{} ->
+                {:error, :agent_owner_company_owner_mismatch}
+
+              nil ->
+                {:error, :not_found}
+            end
+
+          _ ->
+            {:error, :agent_membership_invariant_violation}
+        end
+
+      _ ->
         :ok
     end
   end

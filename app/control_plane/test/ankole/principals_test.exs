@@ -3,6 +3,9 @@ defmodule Ankole.PrincipalsTest do
 
   alias Ankole.Principals
   alias Ankole.Principals.ExternalIdentity
+  alias Ankole.Company
+  alias Ankole.Company.Membership
+  alias Ankole.Company.AgentCompanyStore
 
   import Ankole.PrincipalsFixtures
 
@@ -198,6 +201,64 @@ defmodule Ankole.PrincipalsTest do
       assert updated_agent.uid == principal.uid
       assert updated_agent.role == "Customer Success Operator"
       assert updated_agent.options == %{"temperature" => 0.2}
+    end
+
+    test "unbound Agent may update owner to another human" do
+      owner = human_fixture()
+      agent_fixture_result = agent_fixture(%{owner_principal_uid: owner.principal.uid})
+      agent_principal = agent_fixture_result.principal
+      owner_b = human_fixture()
+
+      assert {:ok, result} =
+               Principals.update_agent(agent_principal.uid, %{owner_principal_uid: owner_b.principal.uid})
+      updated = result.agent
+      assert updated.owner_principal_uid == owner_b.principal.uid
+    end
+
+    test "bound Agent may update owner to same Company Owner" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :active})
+      %{principal: agent_principal, agent: _agent_struct} =
+        agent_fixture(%{owner_principal_uid: owner.principal.uid})
+      {:ok, _} = AgentCompanyStore.bind_agent_to_company(Repo, agent_principal.uid, company.uid)
+
+      assert {:ok, result} =
+               Principals.update_agent(agent_principal.uid, %{owner_principal_uid: company.owner_principal_uid})
+      updated = result.agent
+      assert updated.owner_principal_uid == company.owner_principal_uid
+    end
+
+    test "bound Agent cannot update owner to different human" do
+      owner = human_fixture()
+      company = company_fixture(owner.principal.uid, %{status: :active})
+      agent_fixture_result = agent_fixture(%{owner_principal_uid: owner.principal.uid})
+      agent_principal = agent_fixture_result.principal
+      {:ok, _} = AgentCompanyStore.bind_agent_to_company(Repo, agent_principal.uid, company.uid)
+      owner_b = human_fixture()
+
+      assert {:error, :agent_owner_company_owner_mismatch} =
+               Principals.update_agent(agent_principal.uid, %{owner_principal_uid: owner_b.principal.uid})
+      # Verify original owner unchanged
+      {:ok, %{agent: reloaded}} = Principals.get_agent(agent_principal.uid)
+      assert reloaded.owner_principal_uid == company.owner_principal_uid
+    end
+
+    test "bound Agent with 2+ memberships fails closed on owner update" do
+      owner = human_fixture()
+      company_a = company_fixture(owner.principal.uid, %{status: :active})
+      company_b = company_fixture(owner.principal.uid, %{status: :active})
+      agent_fixture_result = agent_fixture(%{owner_principal_uid: owner.principal.uid})
+      agent_principal = agent_fixture_result.principal
+
+      # Create corrupt state with 2 memberships
+      Repo.insert(Membership.changeset(%Membership{}, %{company_uid: company_a.uid, principal_uid: agent_principal.uid}))
+      Repo.insert(Membership.changeset(%Membership{}, %{company_uid: company_b.uid, principal_uid: agent_principal.uid}))
+
+      assert {:error, :agent_membership_invariant_violation} =
+               Principals.update_agent(agent_principal.uid, %{owner_principal_uid: owner.principal.uid})
+      # Verify original owner unchanged
+      {:ok, %{agent: reloaded}} = Principals.get_agent(agent_principal.uid)
+      assert reloaded.owner_principal_uid == owner.principal.uid
     end
 
     test "list_active_agents/0 excludes disabled agents" do
@@ -654,4 +715,24 @@ defmodule Ankole.PrincipalsTest do
                ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
     end
   end
+
+defp company_fixture(owner_uid, attrs \\ %{}) do
+  suffix = System.unique_integer([:positive])
+
+  defaults = %{
+    uid: "test-company-#{suffix}",
+    name: "test-company-#{suffix}",
+    display_name: "Test Company",
+    status: :created,
+    metadata: %{},
+    owner_principal_uid: owner_uid
+  }
+
+  {:ok, company} =
+    %Company{}
+    |> Company.changeset(Map.merge(defaults, attrs))
+    |> Repo.insert()
+
+  company
+end
 end
