@@ -18,54 +18,36 @@
 | Fresh-Agent Reconstruction Validation | COMPLETE / PASS |
 | Final Master Architecture / Design Gate | COMPLETE / PASS / ACCEPTED |
 | Implementation Decomposition | COMPLETE / PASS / ACCEPTED |
+| W1 — Company Domain + Principal Integration | CLOSED — TASK-009 |
 
 ## Current phase
 
-**PRE-IMPLEMENTATION HYGIENE / IMPLEMENTATION READINESS**
+**W2 — WORK HIERARCHY / CURRENT PLANNING**
 
-Current task: Repository Hygiene / Implementation-Readiness Audit — TASK-008.
+Current task: TASK-010 — W2 Work Hierarchy — PROPOSED / PLANNING / ARCHITECTURE-DECOMPOSITION; NOT IMPLEMENTATION.
 
-ARCH-SYNC-01 documentation/governance synchronization is COMPLETED / ACCEPTED.
-Repository Persistence / Verification is COMPLETE / PASS / ACCEPTED. TASK-000
-Fresh-Agent Reconstruction Qualification is CLOSED / ACCEPTED; Attempt 1 = FAIL
-/ NOT QUALIFIED; Attempt 2 = FAIL / NOT QUALIFIED; Attempt 3 = PASS / QUALIFIED.
-TASK-003 harness repair is CLOSED / ACCEPTED. TASK-004 precision repair is
-CLOSED / ACCEPTED. Fresh-Agent Reconstruction Validation is COMPLETE / PASS.
-Final Master Architecture / Design Gate is COMPLETE / PASS / ACCEPTED.
-Implementation Decomposition is COMPLETE / PASS / ACCEPTED.
+```text
+W1 — Company Domain + Principal Integration — CLOSED
+↓
+W2 — Work Hierarchy — CURRENT PLANNING
+↓
+W3 — Authorization / Capability / Action Assurance — FUTURE
+```
 
-The selected first implementation workstream is:
-**Company Domain Foundation + Principal Identity Integration** — SELECTED /
-BLOCKED PENDING HYGIENE GATE.
+W1 implementation is closed at `9ef52e86f544abf1ff4dff6238b55e72f8856636`. W2 implementation is NOT STARTED and remains blocked until the PM resolves the TASK-010 decision register and approves the architecture/decomposition. W3 remains a future wave; no later architecture area is numbered here.
 
-Mandatory sequence before any product implementation:
-Repository-First governance transition → Repository Hygiene audit → Bounded
-hygiene repairs if required → Hygiene Gate PASS → first bounded product coding task.
+The historical Repository-First / Hygiene Gate sequence remains recorded in TASK-007, TASK-008, D-269, and the implementation decomposition baseline. It is not the current active phase.
 
 ## Next steps
 
-1. ARCH-SYNC-01 — documentation/governance synchronization (COMPLETED / ACCEPTED)
-2. Repository persistence / verification — confirm document-graph integrity,
-   decision-ID continuity, reading-order resolution, and cross-file consistency
-   (COMPLETE / PASS / ACCEPTED)
-3. Fresh-Agent Reconstruction Validation — verify a new AI can reconstruct
-   the project solely from repository files (COMPLETE / PASS; TASK-000 closed;
-   Attempt 1 = FAIL / NOT QUALIFIED; Attempt 2 = FAIL / NOT QUALIFIED; Attempt
-   3 = PASS / QUALIFIED)
-4. Final Master Architecture / Design Gate — full gate review and PASS
-   (COMPLETE / PASS / ACCEPTED)
-5. Implementation Decomposition — decompose architecture into bounded tasks
-   (COMPLETE / PASS / ACCEPTED)
-6. Repository-First Governance + Hygiene Gate Transition — COMPLETE / PASS / ACCEPTED / TASK-007 CLOSED
-7. Repository Hygiene / Implementation-Readiness Audit — CURRENT / TASK-008 AUTHORIZED / READ-ONLY
-8. Bounded Repository Hygiene Corrections — IF REQUIRED
-9. Repository Hygiene Gate — MUST PASS BEFORE PRODUCT CODING
-10. Controlled Implementation — Wave 1: Company Domain Foundation + Principal Identity Integration
-    — SELECTED / BLOCKED PENDING HYGIENE GATE
-11. Kilo execution-agent activation — authorized bounded task execution
-12. Controlled implementation — execute tasks under PM supervision
-13. MA-20 executable qualification — empirical proof of production fitness
-14. Release preparation — bring system to verifiable release state
+1. TASK-009 — W1 Company Domain + Principal Integration (CLOSED at `9ef52e86f544abf1ff4dff6238b55e72f8856636`)
+2. TASK-010 — W2 Work Hierarchy planning and architecture decomposition (CURRENT / PROPOSED)
+3. PM resolves each TASK-010 decision or records an explicit PM-approved deferral for a non-blocking item.
+4. PM approves or revises the W2 candidate decomposition; no WORK package is locked before approval.
+5. W2 implementation — NOT STARTED; requires a separate PM-authorized implementation task.
+6. W3 — Authorization / Capability / Action Assurance — FUTURE.
+7. MA-20 executable qualification — empirical proof of production fitness.
+8. Release preparation — bring system to verifiable release state.
 
 ## Notes
 

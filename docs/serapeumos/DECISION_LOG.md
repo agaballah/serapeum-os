@@ -2864,3 +2864,72 @@ sequence ID is the primary ordering key.
 - **Implementation effect:** Product implementation remains NOT STARTED and
   blocked pending Hygiene Gate.
 ---
+
+## D-271 — W1 Company Domain + Principal Integration closure
+
+- **Status:** LOCKED
+- **Decision:** TASK-009 W1 — Company Domain + Principal Integration is CLOSED /
+  COMPLETE at `9ef52e86f544abf1ff4dff6238b55e72f8856636`.
+- **Basis:** Git history contains the COMPANY-001 through COMPANY-006 commit chain;
+  final `HEAD == origin/main`; the working tree is clean; the PM closure record
+  retains the supplied runtime evidence of 24 passed / 0 failures, 169 passed / 0
+  failures, and 35 passed / 0 failures.
+- **Effect:** W1 is complete project history and is excluded from W2 scope.
+- **Limitations:** This records project-management closure. It does not claim W2,
+  W3, MA-20, or release qualification.
+- **Supersession:** For W1 sequencing, this explicit current PM status supersedes
+  D-269's historical sentence that the Company workstream remained blocked from
+  coding. D-269's hygiene-gate rule remains recorded for future implementation
+  sequencing.
+
+---
+
+## D-272 — W2 Work Hierarchy selected as the next planning wave
+
+- **Status:** LOCKED
+- **Decision:** W2 Work Hierarchy is the next wave after W1 and is in CURRENT
+  PLANNING / ARCHITECTURE-DECOMPOSITION.
+- **Basis:** MA-04 and D-046 lock Goal → Mission → Task → execution; GAP-003
+  proposes a Work Hierarchy substrate; TASK-010 records the planning gate.
+- **Effect:** TASK-010 is a formal proposed planning control record.
+- **Limitations:** This does not approve schemas, lock implementation packages, or
+  authorize source changes.
+- **Supersession:** A later explicit PM/Owner sequencing decision may change the
+  wave order without reopening closed MA architecture.
+
+---
+
+## D-273 — W2 implementation remains gated
+
+- **Status:** LOCKED
+- **Decision:** W2 implementation is NOT STARTED and remains blocked until the PM
+  resolves the TASK-010 decision register, or records explicit PM-approved
+  deferrals for non-blocking items, and approves the architecture/decomposition.
+- **Basis:** TASK-010 records unresolved schema, lifecycle, assignment, dependency,
+  result/evidence, archive, Store/context, review, and concurrency decisions.
+- **Effect:** No application source, migration, test, or closed-MA change is
+  authorized by TASK-010.
+- **Limitations:** This is an implementation gate, not an architecture change.
+- **Supersession:** Only a later explicit PM/Owner approval may release the gate.
+
+---
+
+## D-274 — W2 / W3 boundary preserved
+
+- **Status:** LOCKED
+- **Decision:** W2 may establish work identity, hierarchy, Company relationship,
+  organizational assignment, lifecycle, and structural ownership/responsibility
+  relationships. W2 must not implement permission grants, capability issuance,
+  delegated authorization, Action Assurance, tool permissioning, execution
+  authority, approval policy, resource authority, or authorization-derived
+  reviewer powers, except for a structural reference explicitly required by
+  canonical architecture.
+- **Basis:** MA-04 organizational semantics; MA-06 AuthZ/Capability/Action
+  Assurance separation; D-042, D-046, D-051, D-063, and D-064.
+- **Effect:** W3 Authorization / Capability / Action Assurance remains a future
+  wave and is not absorbed into W2.
+- **Limitations:** Structural foreign keys or references may represent identity,
+  scope, lineage, or accountability without granting authority.
+- **Supersession:** Only an explicit later PM/Owner architecture decision may
+  change this boundary.
+---

@@ -23,39 +23,27 @@
 
 ## Development status
 
-- **Current phase:** PRE-IMPLEMENTATION HYGIENE / IMPLEMENTATION READINESS
-- **Implementation:** NOT STARTED — BLOCKED PENDING HYGIENE GATE
-- **Current active work:** TASK-008 Repository Hygiene / Implementation-Readiness Audit — EVIDENCE_COLLECTED / R6 REPAIR COMMITTED
-- **Next gate:** REPOSITORY HYGIENE / IMPLEMENTATION-READINESS GATE
-- **Next action:** Project Manager reviews R5 findings register and R6 repair commit (81b4b82a); makes Hygiene Gate PASS/FAIL decision.
-- **Final Master Architecture / Design Gate:** PASS / ACCEPTED / COMPLETED
-- **Implementation Decomposition:** PASS / ACCEPTED / COMPLETED
-- **First implementation workstream:** Company Domain Foundation + Principal Identity Integration — SELECTED / BLOCKED PENDING HYGIENE GATE
-- **MA-20 executable qualification:** NOT RUN
-- **Runtime prototypes:** PAUSED
-- **Assigned task spec:** docs/serapeumos/tasks/TASK-008_REPOSITORY_HYGIENE_IMPLEMENTATION_READINESS_AUDIT.md
+- **Authoritative repository baseline:** `main`; `HEAD == origin/main == 9ef52e86f544abf1ff4dff6238b55e72f8856636`; working tree clean before this reconciliation.
+- **COMPLETED:** W1 / TASK-009 Company Domain + Principal Integration — CLOSED / COMPLETE at `9ef52e86f544abf1ff4dff6238b55e72f8856636`.
+- **CURRENT:** TASK-010 / W2 Work Hierarchy — architecture + implementation decomposition; PROPOSED / PLANNING / ARCHITECTURE-DECOMPOSITION; NOT IMPLEMENTATION.
+- **NOT STARTED:** W2 implementation.
+- **NEXT MAJOR WAVE AFTER W2:** W3 Authorization / Capability / Action Assurance — FUTURE.
+- **Next gate:** PM review of the TASK-010 decision register and candidate decomposition.
+- **Next action:** PM resolves each `PM DECISIONS REQUIRED BEFORE IMPLEMENTATION` item or records an explicit PM-approved deferral for a non-blocking item, then approves or revises the W2 decomposition before authorizing implementation.
+- **Final Master Architecture / Design Gate:** PASS / ACCEPTED / COMPLETED.
+- **Implementation Decomposition:** PASS / ACCEPTED / COMPLETED; W2 package decomposition remains DRAFT.
+- **MA-20 executable qualification:** NOT RUN.
+- **Runtime prototypes:** PAUSED.
+- **Assigned control record:** `docs/serapeumos/tasks/TASK-010_W2_WORK_HIERARCHY.md`.
+
+TASK-008 hygiene-audit evidence and the R6 security repair remain historical project memory in the TASK-008 record. This reconciliation does not reopen TASK-008 or claim a new Hygiene Gate verdict. W1 closure evidence is retained in the TASK-009 record: COMPANY-006 narrow 24 passed / 0 failures; Company domain 169 passed / 0 failures; Principal/Agent 35 passed / 0 failures. No runtime tests were rerun during this documentation-only reconciliation.
 
 ## Last updated
 
-- **Date:** 2026-09-14
-- **Milestone:** TASK-008 R5 findings collected; R6 security repair committed (81b4b82a); pending PM Hygiene Gate decision
-- **Next immediate action:** PM reviews R5 findings register, R6 repair, and DEFERRED items (HYGIENE-001/003/004/005); makes HYGIENE_GATE decision.
-
-Governance/repository-memory bootstrap is complete. MA-01→MA-20 architecture
-is CLOSED / PASS. Final Cross-Domain Consistency Audit is COMPLETE — MA-01→MA-20
-domain architecture consistency PASS; documentation-synchronization blockers
-identified by the audit were handled through ARCH-SYNC-01 / repository persistence
-and accepted by PM. ARCH-SYNC-01 is ACCEPTED. Repository Persistence / Verification
-is PASS / ACCEPTED / completed. Fresh-Agent Reconstruction Validation is PASS
-/ COMPLETED. Final Master Architecture / Design Gate is PASS / ACCEPTED /
-COMPLETED. Implementation Decomposition is PASS / ACCEPTED / COMPLETED. The
-first product implementation workstream (Company Domain Foundation + Principal
-Identity Integration) is SELECTED but BLOCKED FROM CODING PENDING HYGIENE GATE.
-Implementation remains NOT STARTED — blocked pending Hygiene Gate. MA-20
-executable qualification remains NOT RUN. Runtime prototypes remain PAUSED.
+- **Date:** 2026-09-20
+- **Milestone:** TASK-009 W1 closed at `9ef52e86f544abf1ff4dff6238b55e72f8856636`; TASK-010 W2 planning record created; W2 implementation not started; PM decisions pending.
+- **Next immediate action:** PM resolves each TASK-010 decision or records an explicit PM-approved deferral for a non-blocking item, then approves or revises the W2 architecture/decomposition gate.
 
 ## Update discipline
 
-This file must be updated after every meaningful milestone. A meaningful milestone
-is any completed gate, phase transition, implementation milestone, or change to
-current blockers or phase status.
+This file must be updated after every meaningful milestone. A meaningful milestone is any completed gate, phase transition, implementation milestone, or change to current blockers or phase status.

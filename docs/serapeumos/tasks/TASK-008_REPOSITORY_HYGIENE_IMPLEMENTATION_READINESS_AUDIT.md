@@ -8,6 +8,8 @@ Authority:
 - PROJECT_MANAGER_CONTRACT.md — Repository-First Response Gate
 - IMPLEMENTATION_DECOMPOSITION_BASELINE.md — Mandatory Pre-Implementation Hygiene Gate
 
+Current-context annotation: Historical task. Not current. Superseded for current project phase by TASK-009 / TASK-010.
+
 Authorization-parent baseline:
 78e68baabbeb9b00855dab6fd02139da0ba5da36
 

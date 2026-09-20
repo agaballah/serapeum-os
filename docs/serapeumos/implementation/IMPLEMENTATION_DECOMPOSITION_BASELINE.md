@@ -246,3 +246,17 @@ candidate must first be classified and evidenced.
 
 *Document created: 2026-09-12*
 *Basis: TASK-006 PASS / ACCEPTED; D-268; D-269*
+
+---
+
+## Current project-state annotation — 2026-09-20
+
+The historical decomposition above remains unchanged. Current repository truth is:
+
+- W1 / TASK-009: CLOSED / COMPLETE at `9ef52e86f544abf1ff4dff6238b55e72f8856636`.
+- W2 / TASK-010: PROPOSED / PLANNING / ARCHITECTURE-DECOMPOSITION; implementation NOT STARTED.
+- W3 Authorization / Capability / Action Assurance: FUTURE.
+
+This annotation does not alter the historical status, hashes, scope, or evidence above.
+See `TASK-009_COMPANY_DOMAIN_PRINCIPAL_INTEGRATION.md`,
+`TASK-010_W2_WORK_HIERARCHY.md`, and D-271 through D-274 for current control records.
