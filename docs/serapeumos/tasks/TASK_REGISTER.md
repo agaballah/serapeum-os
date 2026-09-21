@@ -30,7 +30,7 @@ It is maintained by the Project Manager and updated after each task milestone.
 | TASK-007 | Repository-First Governance & Pre-Implementation Hygiene Gate Transition | CLOSED | PM | 2026-09-12 | 2026-09-12 |
 | TASK-008 | Repository Hygiene / Implementation-Readiness Audit | AUTHORIZED | PM | 2026-09-12 | — |
 | TASK-009 | W1 — Company Domain + Principal Integration | CLOSED | PM | — | — |
-| TASK-010 | W2 — Work Hierarchy (PLANNING / ARCHITECTURE-DECOMPOSITION; NOT IMPLEMENTATION) | PROPOSED | — | 2026-09-20 | — |
+| TASK-010 | W2 — Work Hierarchy (PLANNING / ARCHITECTURE-DECOMPOSITION; NOT IMPLEMENTATION) | AUTHORIZED | PM | 2026-09-20 | — |
 
 ## Rules
 
@@ -42,6 +42,9 @@ It is maintained by the Project Manager and updated after each task milestone.
   the task record and is not duplicated here.
 - A `PROPOSED` task is a planning control record. It does not authorize
   implementation.
+- An `AUTHORIZED` planning task (e.g. TASK-010) authorizes only the planning and
+  architecture-decomposition work it describes; it does not authorize application
+  source, migration, test, or closed-MA changes.
 - TASK-009 dates are not reconstructed from chat. Its W1 commit range and
   closure evidence are recorded in `TASK-009_COMPANY_DOMAIN_PRINCIPAL_INTEGRATION.md`.
 - TASK-008 remains a historical audit record. Its `AUTHORIZED` status is retained
