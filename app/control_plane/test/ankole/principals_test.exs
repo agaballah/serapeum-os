@@ -277,6 +277,54 @@ defmodule Ankole.PrincipalsTest do
                &(&1.principal.uid == disabled.principal.uid)
              )
     end
+
+    test "enable_agent/1 rejects Agent without current Mission" do
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("no-mission-agent")})
+
+      # Agent has no Mission assigned
+      assert {:error, :agent_missing_current_mission} = Principals.enable_agent(agent.uid)
+    end
+
+    test "enable_agent/1 accepts Agent with current Mission" do
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("missioned-agent")})
+
+      # Create a Company and add Agent as member
+      owner = human_fixture()
+      company = %Company{} |> Company.changeset(%{
+        uid: "enable-test-company",
+        name: "enable-test-company",
+        display_name: "Enable Test Company",
+        status: :active,
+        metadata: %{},
+        owner_principal_uid: owner.principal.uid
+      }) |> Repo.insert!()
+
+      %Membership{} |> Membership.changeset(%{
+        company_uid: company.uid,
+        principal_uid: agent.uid
+      }) |> Repo.insert!()
+
+      # Create Mission identity
+      %Ankole.WorkHierarchy.Mission{} |> Ankole.WorkHierarchy.Mission.changeset(%{
+        uid: "enable-mission",
+        company_uid: company.uid,
+        creator_principal_uid: agent.uid
+      }) |> Repo.insert!()
+
+      # Create MissionRevision with Agent target
+      %Ankole.WorkHierarchy.MissionRevision{} |> Ankole.WorkHierarchy.MissionRevision.changeset(%{
+        mission_uid: "enable-mission",
+        revision_number: 1,
+        current_revision: true,
+        assigned_agent_uid: agent.uid,
+        creator_principal_uid: agent.uid,
+        content: "Test mandate",
+        content_hash: "abc123"
+      }) |> Repo.insert!()
+
+      # Re-enable should now succeed
+      assert {:ok, %{status: :active}} = Principals.enable_agent(agent.uid)
+    end
   end
 
   describe "platform subjects" do

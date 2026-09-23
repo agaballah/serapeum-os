@@ -23,6 +23,7 @@ defmodule Ankole.Principals do
   alias Ankole.RuntimeEvents
   alias Ankole.Company
   alias Ankole.Company.MembershipStore
+  alias Ankole.WorkHierarchy.MissionRevision
 
   @principal_profile_fields [:display_name, :avatar_url]
   @human_profile_fields [:email, :mobile, :job_title]
@@ -122,21 +123,26 @@ defmodule Ankole.Principals do
           {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
   def create_agent(attrs) when is_map(attrs) do
     with {:ok, uid} <- fetch_attr(attrs, :uid),
-         {:ok, uid} <- normalize_uid(uid),
-         :ok <- AgentHomePaths.validate_agent_uid(uid) do
+          {:ok, uid} <- normalize_uid(uid),
+          :ok <- AgentHomePaths.validate_agent_uid(uid) do
       attrs = attrs |> Map.delete("uid") |> Map.put(:uid, uid)
 
-      Repo.transact(fn repo ->
-        agent_attrs = take_attrs(attrs, @agent_fields)
+      Repo.transact(fn repo -> create_agent_in_tx(repo, attrs) end)
+    end
+  end
 
-        with :ok <- validate_agent_owner(repo, agent_attrs),
-             {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
-             {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
-             :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
-             :ok <- RuntimeEvents.notify_agent_home_projection(repo, principal.uid) do
-          {:ok, %{principal: principal, agent: agent}}
-        end
-      end)
+  @doc """
+  Creates an agent Principal inside a caller-owned transaction.
+  """
+  @spec create_agent_in_tx(module(), map()) ::
+          {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
+  def create_agent_in_tx(repo, attrs) when is_map(attrs) do
+    with :ok <- validate_agent_owner(repo, attrs),
+         {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
+         {:ok, agent} <- insert_agent(repo, principal.uid, take_attrs(attrs, @agent_fields)),
+         :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
+         :ok <- RuntimeEvents.notify_agent_home_projection(repo, principal.uid) do
+      {:ok, %{principal: principal, agent: agent}}
     end
   end
 
@@ -230,17 +236,34 @@ defmodule Ankole.Principals do
 
   @doc """
   Re-enables a disabled agent Principal.
+
+  The Agent must have exactly one current effective Mission revision before
+  re-enabling; this structural invariant prevents an active Company-bound
+  Agent from operating without authoritative mandate state.
   """
   @spec enable_agent(String.t()) :: principal_result()
   def enable_agent(uid) do
     Repo.transact(fn repo ->
       with {:ok, principal} <- fetch_principal_for_update(repo, uid),
-           :ok <- ensure_principal_type(principal, :agent) do
+           :ok <- ensure_principal_type(principal, :agent),
+           :ok <- validate_current_effective_mission(repo, principal.uid) do
         principal
         |> Principal.status_changeset(%{status: :active})
         |> repo.update()
       end
     end)
+  end
+
+  defp validate_current_effective_mission(repo, agent_uid) do
+    case repo.one(
+           from r in MissionRevision,
+             where: r.assigned_agent_uid == ^agent_uid and r.current_revision == true,
+             limit: 1,
+             select: r.id
+         ) do
+      id when is_binary(id) -> :ok
+      _ -> {:error, :agent_missing_current_mission}
+    end
   end
 
   @doc """

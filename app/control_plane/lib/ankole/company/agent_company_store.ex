@@ -28,6 +28,19 @@ defmodule Ankole.Company.AgentCompanyStore do
     end)
   end
 
+  @doc """
+  Binds an existing Agent Principal to exactly one active Company within a
+  caller-owned transaction.
+
+  Use this variant when composing multiple operations (e.g. Agent creation +
+  Company binding + Mission assignment) inside a single `Repo.transact` callback.
+  """
+  @spec bind_agent_to_company_in_tx(Ecto.Repo.t(), String.t(), String.t()) ::
+          {:ok, Ankole.Company.Membership.t()} | {:error, term()}
+  def bind_agent_to_company_in_tx(repo, agent_uid, company_uid) do
+    do_bind_agent_to_company(repo, agent_uid, company_uid)
+  end
+
   defp do_bind_agent_to_company(repo, agent_uid, company_uid) do
     with {:ok, company} <- fetch_company_for_update(repo, company_uid),
          :ok <- validate_company_active(company),

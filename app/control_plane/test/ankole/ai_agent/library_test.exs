@@ -144,6 +144,29 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert "is invalid" in errors_on(changeset).source_kind
   end
 
+  test "rejects direct mission document replacement" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:error, :mission_managed_by_work_hierarchy} =
+             Library.replace_agent_document(agent.uid, "mission", "new content", "old-hash")
+  end
+
+  test "update_mission_projection_in_tx updates MISSION.md without notification" do
+    %{principal: agent} = agent_fixture()
+
+    # Ensure agent has a library entry first
+    {:ok, _} = Library.seed_agent_library(agent.uid)
+
+    new_content = "Authoritative mission mandate from WorkHierarchy."
+    metadata = %{"source" => "mission_revision"}
+
+    assert :ok = Library.update_mission_projection_in_tx(Repo, agent.uid, new_content, metadata)
+
+    {:ok, documents} = Library.list_agent_documents(agent.uid)
+    assert documents["mission"]["content"] == new_content
+    assert documents["mission"]["content_hash"] == SourceReader.hash(new_content)
+  end
+
   test "skill_view merges canonical skill body with delivered skill lessons" do
     %{principal: agent} = agent_fixture()
 

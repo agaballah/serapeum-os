@@ -493,7 +493,22 @@ defmodule Ankole.AIAgent.Library do
         opts \\ []
       )
 
-  def replace_agent_document(agent_uid, kind, content, expected_content_hash, opts)
+  def replace_agent_document(
+        _agent_uid,
+        "mission",
+        _content,
+        _expected_content_hash,
+        _opts
+      ),
+      do: {:error, :mission_managed_by_work_hierarchy}
+
+  def replace_agent_document(
+        agent_uid,
+        kind,
+        content,
+        expected_content_hash,
+        opts
+      )
       when is_binary(kind) and is_binary(content) and is_binary(expected_content_hash) do
     repo = Keyword.get(opts, :repo, Repo)
 
@@ -518,6 +533,30 @@ defmodule Ankole.AIAgent.Library do
 
   def replace_agent_document(_agent_uid, _kind, _content, _expected_content_hash, _opts),
     do: {:error, :invalid_agent_document}
+
+  @doc """
+  Updates the Agent Library MISSION.md projection from MissionStore.
+
+  This is a bounded internal API called inside a caller-owned transaction.
+  It updates only the active MISSION.md row for the given Agent without
+  verifying hash (unconditional projection replacement). The projection
+  is NOT Mission authority; the authoritative content lives in
+  `mission_revisions.content`.
+  """
+  @spec update_mission_projection_in_tx(module(), String.t(), String.t(), map()) ::
+          :ok | {:error, term()}
+  def update_mission_projection_in_tx(repo, agent_uid, content, metadata \\ %{})
+      when is_atom(repo) and is_binary(agent_uid) and is_binary(content) and is_map(metadata) do
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         :ok <- ensure_agent(repo, agent_uid),
+         {:ok, spec} <- agent_document_spec("mission") do
+      lock_agent_document(repo, agent_uid, spec.kind)
+
+      upsert_agent_document_in_tx(repo, agent_uid, spec, content, Map.put(metadata, "source", "mission_revision"))
+
+       :ok
+     end
+  end
 
   @doc "Returns one coherent Agent Plugin and Skill catalog for an Agent runtime."
   @spec runtime_catalog_for_agent(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
