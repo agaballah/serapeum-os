@@ -38,6 +38,7 @@ defmodule Ankole.WorkHierarchy.Task do
     field :child_completion_policy, :string, default: "ALL_COMPLETED"
     field :cancelled_at, :utc_datetime_usec
     field :cancellation_reason, :string
+    field :failure_reason, :string
 
     belongs_to :company, Company,
       foreign_key: :company_uid,
@@ -101,7 +102,8 @@ defmodule Ankole.WorkHierarchy.Task do
       :child_completion_policy,
       :cancelled_at,
       :cancelled_by_uid,
-      :cancellation_reason
+      :cancellation_reason,
+      :failure_reason
     ])
     |> normalize_blank([:uid])
     |> validate_required([:uid, :company_uid, :creator_principal_uid, :origin_kind, :status,
