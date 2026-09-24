@@ -840,4 +840,78 @@ defmodule Ankole.WorkHierarchy.TaskStore do
     suffix = System.unique_integer([:positive])
     {:ok, "delegation-#{suffix}"}
   end
+
+  # ─── P6: Read-only result and review helpers ──────────────────────────────
+
+  @doc """
+  Fetches one Task result by stable UID.
+
+  Read-only lookup. No transaction or lock required.
+  """
+  @spec fetch_result(Ecto.Repo.t(), String.t()) :: Ankole.WorkHierarchy.TaskResult.t() | nil
+  def fetch_result(repo, result_uid) do
+    Ankole.WorkHierarchy.ResultStore.fetch_result(repo, result_uid)
+  end
+
+  @doc """
+  Fetches the current Task result: the newest result by `created_at`, with
+  `id` as a deterministic tie-break.
+
+  Read-only projection. No lock required. Returns nil when the Task has no
+  results.
+  """
+  @spec fetch_current_result(Ecto.Repo.t(), String.t()) :: Ankole.WorkHierarchy.TaskResult.t() | nil
+  def fetch_current_result(repo, task_uid) do
+    Ankole.WorkHierarchy.ResultStore.fetch_current_result(repo, task_uid)
+  end
+
+  @doc """
+  Lists all Task results for one Task, ordered chronologically.
+
+  Read-only query. No transaction or lock required.
+  """
+  @spec list_task_results(Ecto.Repo.t(), String.t()) :: [Ankole.WorkHierarchy.TaskResult.t()]
+  def list_task_results(repo, task_uid) do
+    Ankole.WorkHierarchy.ResultStore.list_task_results(repo, task_uid)
+  end
+
+  @doc """
+  Lists all Task results for one Company, resolved through Task ownership.
+
+  Read-only query. No transaction or lock required.
+  """
+  @spec list_company_results(Ecto.Repo.t(), String.t()) :: [Ankole.WorkHierarchy.TaskResult.t()]
+  def list_company_results(repo, company_uid) do
+    Ankole.WorkHierarchy.ResultStore.list_company_results(repo, company_uid)
+  end
+
+  @doc """
+  Fetches one Review by stable UID.
+
+  Read-only lookup. No transaction or lock required.
+  """
+  @spec fetch_review(Ecto.Repo.t(), String.t()) :: Ankole.WorkHierarchy.ReviewRecord.t() | nil
+  def fetch_review(repo, review_uid) do
+    Ankole.WorkHierarchy.ReviewStore.fetch_review(repo, review_uid)
+  end
+
+  @doc """
+  Lists all Reviews for one Task, ordered chronologically.
+
+  Read-only query. No transaction or lock required.
+  """
+  @spec list_task_reviews(Ecto.Repo.t(), String.t()) :: [Ankole.WorkHierarchy.ReviewRecord.t()]
+  def list_task_reviews(repo, task_uid) do
+    Ankole.WorkHierarchy.ReviewStore.list_task_reviews(repo, task_uid)
+  end
+
+  @doc """
+  Lists all Reviews against one Result, ordered chronologically.
+
+  Read-only query. No transaction or lock required.
+  """
+  @spec list_result_reviews(Ecto.Repo.t(), String.t()) :: [Ankole.WorkHierarchy.ReviewRecord.t()]
+  def list_result_reviews(repo, result_uid) do
+    Ankole.WorkHierarchy.ReviewStore.list_result_reviews(repo, result_uid)
+  end
 end
