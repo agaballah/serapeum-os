@@ -197,6 +197,7 @@ defmodule Ankole.WorkHierarchy.ResultStore do
     repo.one(
       from rv in ReviewRecord,
         where: rv.reviewed_result_uid == ^result_uid and is_nil(rv.invalidated_at),
+        lock: "FOR UPDATE",
         limit: 1
     )
   end

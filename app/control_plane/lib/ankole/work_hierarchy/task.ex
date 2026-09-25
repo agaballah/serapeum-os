@@ -28,6 +28,7 @@ defmodule Ankole.WorkHierarchy.Task do
 
   schema "tasks" do
     field :uid, :string
+    field :version, :integer
     field :origin_kind, :string
     field :origin_reference, :map
     field :status, :string
@@ -103,7 +104,8 @@ defmodule Ankole.WorkHierarchy.Task do
       :cancelled_at,
       :cancelled_by_uid,
       :cancellation_reason,
-      :failure_reason
+      :failure_reason,
+      :version
     ])
     |> normalize_blank([:uid])
     |> validate_required([:uid, :company_uid, :creator_principal_uid, :origin_kind, :status,
@@ -121,6 +123,7 @@ defmodule Ankole.WorkHierarchy.Task do
     |> foreign_key_constraint(:accountable_agent_uid)
     |> foreign_key_constraint(:creator_principal_uid)
     |> foreign_key_constraint(:cancelled_by_uid)
+    |> optimistic_lock(:version)
   end
 
   defp validate_cancelled_fields_coherence(changeset) do

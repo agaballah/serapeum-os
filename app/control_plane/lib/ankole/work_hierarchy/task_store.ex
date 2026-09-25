@@ -211,7 +211,7 @@ defmodule Ankole.WorkHierarchy.TaskStore do
 
   defp validate_mission_reference(_repo, %{mission_uid: nil}), do: :ok
   defp validate_mission_reference(repo, %{mission_uid: uid}) when is_binary(uid) do
-    case repo.get(Mission, uid) do
+    case repo.one(from m in Mission, where: m.uid == ^uid, limit: 1) do
       %Mission{} -> :ok
       nil -> {:error, :mission_not_found}
     end
@@ -220,7 +220,7 @@ defmodule Ankole.WorkHierarchy.TaskStore do
 
   defp validate_goal_reference(_repo, %{goal_uid: nil}), do: :ok
   defp validate_goal_reference(repo, %{goal_uid: uid}) when is_binary(uid) do
-    case repo.get(Goal, uid) do
+    case repo.one(from g in Goal, where: g.uid == ^uid, limit: 1) do
       %Goal{} -> :ok
       nil -> {:error, :goal_not_found}
     end
@@ -267,6 +267,7 @@ defmodule Ankole.WorkHierarchy.TaskStore do
       |> Map.put(:company_uid, attrs[:company_uid])
       |> Map.put(:creator_principal_uid, creator_uid)
       |> Map.put_new(:status, "PROPOSED")
+      |> Map.put_new(:version, 1)
 
     %Task{}
     |> Task.changeset(task_attrs)
@@ -434,7 +435,14 @@ defmodule Ankole.WorkHierarchy.TaskStore do
       |> maybe_apply_field(opts, :failure_reason)
       |> maybe_apply_field(opts, :accountable_agent_uid)
 
-    case repo.update(changes) do
+    result =
+      try do
+        repo.update(changes)
+      rescue
+        Ecto.StaleEntryError -> {:error, :version_conflict}
+      end
+
+    case result do
       {:ok, updated_task} -> {:ok, updated_task}
       {:error, changeset} -> {:error, changeset}
     end
@@ -549,6 +557,7 @@ defmodule Ankole.WorkHierarchy.TaskStore do
   def set_dependency(repo, company_uid, task_uid, depends_on_task_uid, dependency_type) do
     with :ok <- self_dependency_check(task_uid, depends_on_task_uid),
           :ok <- both_tasks_exist(repo, company_uid, task_uid, depends_on_task_uid),
+          :ok <- acquire_dependency_advisory_lock(repo, company_uid),
           :no_cycle <- detect_cycle(repo, task_uid, depends_on_task_uid, company_uid),
           {:ok, dependency} <- insert_dependency(repo, task_uid, depends_on_task_uid, dependency_type) do
       {:ok, dependency}
@@ -596,6 +605,15 @@ defmodule Ankole.WorkHierarchy.TaskStore do
     case missing do
       [] -> :ok
       [_missing] -> {:error, :task_not_found}
+    end
+  end
+
+  defp acquire_dependency_advisory_lock(repo, company_uid) do
+    key = :erlang.crc32("deps:#{company_uid}")
+
+    case Ecto.Adapters.SQL.query(repo, "SELECT pg_advisory_xact_lock($1::bigint)", [key]) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -94,14 +94,15 @@ defmodule Ankole.WorkHierarchy.MissionStore do
           {:ok, MissionRevision.t()} | {:error, term()}
   def create_revision(repo, company_uid, mission_uid, attrs) do
     with :ok <- validate_mission_exists(repo, company_uid, mission_uid),
-         {:ok, mission} <- fetch_mission_for_update(repo, mission_uid),
-         {:ok, creator_uid} <- normalize_creator_uid(attrs[:creator_principal_uid]),
-         {:ok, locked_creator} <- fetch_creator_for_update(repo, creator_uid),
-         :ok <- validate_creator_eligible(repo, locked_creator, company_uid),
-         {:ok, next_number} <- compute_next_revision_number(repo, mission.uid),
-         :ok <- demote_previous_current(repo, mission.uid),
-         {:ok, revision} <- insert_revision(repo, mission.uid, attrs, locked_creator, next_number),
-         :ok <- project_agent_mission_if_applicable(repo, revision) do
+          :ok <- acquire_mission_advisory_lock(repo, mission_uid),
+          {:ok, mission} <- fetch_mission_for_update(repo, mission_uid),
+          {:ok, creator_uid} <- normalize_creator_uid(attrs[:creator_principal_uid]),
+          {:ok, locked_creator} <- fetch_creator_for_update(repo, creator_uid),
+          :ok <- validate_creator_eligible(repo, locked_creator, company_uid),
+          {:ok, next_number} <- compute_next_revision_number(repo, mission.uid),
+          :ok <- demote_previous_current(repo, mission.uid),
+          {:ok, revision} <- insert_revision(repo, mission_uid, attrs, locked_creator, next_number),
+          :ok <- project_agent_mission_if_applicable(repo, revision) do
       {:ok, revision}
     end
   end
@@ -163,6 +164,15 @@ defmodule Ankole.WorkHierarchy.MissionStore do
          ) do
       %Mission{} = mission -> {:ok, mission}
       nil -> {:error, :mission_not_found}
+    end
+  end
+
+  defp acquire_mission_advisory_lock(repo, mission_uid) do
+    key = :erlang.crc32("mission:#{mission_uid}")
+
+    case Ecto.Adapters.SQL.query(repo, "SELECT pg_advisory_xact_lock($1::bigint)", [key]) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -264,9 +274,22 @@ defmodule Ankole.WorkHierarchy.MissionStore do
   defp insert_revision(repo, mission_uid, attrs, creator, revision_number) do
     revision_attrs = build_revision_attrs(attrs, mission_uid, creator.uid, revision_number, true)
 
-    %MissionRevision{}
-    |> MissionRevision.changeset(revision_attrs)
-    |> repo.insert()
+    result =
+      %MissionRevision{}
+      |> MissionRevision.changeset(revision_attrs)
+      |> repo.insert()
+
+    case result do
+      {:error, %Ecto.Changeset{errors: errors}} ->
+        if Enum.any?(errors, fn {_, {msg, _}} -> msg =~ "already been taken" end) do
+          {:error, :revision_conflict}
+        else
+          {:error, result}
+        end
+
+      other ->
+        other
+    end
   end
 
   defp build_revision_attrs(attrs, mission_uid, creator_uid, revision_number, current) do
