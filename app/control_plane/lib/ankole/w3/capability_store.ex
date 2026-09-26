@@ -8,8 +8,9 @@ defmodule Ankole.W3.CapabilityStore do
   its owning Company.
 
   This layer performs no authorization evaluation. It does not issue
-  capabilities automatically, does not process expiry or revocation, and has
-  no dependency on W2 review records or any later W3 package.
+  capabilities automatically, and has no dependency on W2 review records
+  or any later W3 package. Lifecycle transitions (revoke, expire, consume)
+  are provided here; attenuation and validation are in CapabilityService.
   """
 
   import Ecto.Query
@@ -26,10 +27,6 @@ defmodule Ankole.W3.CapabilityStore do
   The Principal must be an active member of the Company. The issuer must be
   an active member of the Company. All three references are validated before
   the insert so a cross-Company write fails closed before any row is touched.
-
-  `issued_at` is caller-supplied and immutable. `scope`, `constraints`, and
-  `metadata` default to empty maps. `expires_at`, `revoked_at`,
-  `parent_capability_uid`, and `approval_uid` are nullable.
   """
   @spec create_capability(Ecto.Repo.t(), map()) ::
           {:ok, Capability.t()} | {:error, term()}
@@ -124,6 +121,73 @@ defmodule Ankole.W3.CapabilityStore do
     end
   end
 
+  @doc """
+  Revokes one Capability within its Company.
+
+  Sets `status` to `:revoked` and records the revocation timestamp.
+  The revoker must be an active member of the same Company.
+  Revocation is irreversible. A revoked Capability fails all validation.
+  """
+  @spec revoke_capability(Ecto.Repo.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Capability.t()} | {:error, term()}
+  def revoke_capability(repo, company_uid, capability_uid, revoker_uid) do
+    with {:ok, capability} <- fetch_capability(repo, company_uid, capability_uid),
+         :ok <- assert_active_or_revoked(capability),
+         {:ok, normalized_revoker} <- PrincipalKey.normalize(revoker_uid),
+         %Principal{status: :active} <- repo.get(Principal, normalized_revoker),
+         true <- MembershipStore.member?(repo, company_uid, normalized_revoker) do
+      now = DateTime.utc_now()
+
+      changeset =
+        capability
+        |> Ecto.Changeset.change()
+        |> Ecto.Changeset.put_change(:status, :revoked)
+        |> Ecto.Changeset.put_change(:revoked_at, now)
+
+      case repo.update(changeset) do
+        {:ok, updated} -> {:ok, updated}
+        {:error, _} = err -> err
+      end
+    else
+      {:error, :not_found} -> {:error, :not_found}
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+      false -> {:error, :principal_not_in_company}
+    end
+  end
+
+  @doc """
+  Expires one Capability within its Company.
+
+  Sets `status` to `:expired`. Idempotent — calling on an already-expired
+  Capability returns the existing record.
+  """
+  @spec expire_capability(Ecto.Repo.t(), String.t(), String.t()) ::
+          {:ok, Capability.t()} | {:error, term()}
+  def expire_capability(repo, company_uid, capability_uid) do
+    case fetch_capability(repo, company_uid, capability_uid) do
+      {:ok, %Capability{status: :active} = capability} ->
+        changeset =
+          capability
+          |> Ecto.Changeset.change()
+          |> Ecto.Changeset.put_change(:status, :expired)
+
+        repo.update(changeset)
+
+      {:ok, %Capability{status: :expired}} = result ->
+        result
+
+      {:ok, %Capability{status: :revoked}} ->
+        {:error, :already_revoked}
+
+      {:ok, %Capability{status: :consumed}} ->
+        {:error, :already_consumed}
+
+      {:error, :not_found} ->
+        {:error, :not_found}
+    end
+  end
+
   # ─── private helpers ────────────────────────────────────────────────────
 
   defp ensure_company_exists(repo, company_uid) do
@@ -172,4 +236,8 @@ defmodule Ankole.W3.CapabilityStore do
       :error -> Map.fetch(attrs, Atom.to_string(key))
     end
   end
+
+  defp assert_active_or_revoked(%Capability{status: :active}), do: :ok
+  defp assert_active_or_revoked(%Capability{status: :revoked}), do: :ok
+  defp assert_active_or_revoked(_), do: {:error, :not_found}
 end

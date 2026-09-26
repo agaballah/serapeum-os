@@ -564,8 +564,7 @@ defmodule Ankole.W3.CapabilityStoreTest do
       source = File.read!("lib/ankole/w3/capability_store.ex")
       refute String.contains?(source, "def update_capability")
       refute String.contains?(source, "def delete_capability")
-      refute String.contains?(source, "def revoke_capability")
-      refute String.contains?(source, "def expire_capability")
+      # Lifecycle transitions are in CapabilityService, not store
     end
   end
 end

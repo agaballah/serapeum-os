@@ -333,8 +333,8 @@ defmodule Ankole.W3.CapabilityTest do
   end
 
   describe "canonical_statuses/0" do
-    test "returns the three P2 statuses" do
-      assert Capability.canonical_statuses() == [:active, :revoked, :expired]
+    test "returns the canonical lifecycle states" do
+      assert Capability.canonical_statuses() == [:active, :requested, :authorized, :issued, :consumed, :revoked, :expired]
     end
   end
 

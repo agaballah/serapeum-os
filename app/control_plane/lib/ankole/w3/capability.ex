@@ -38,9 +38,10 @@ defmodule Ankole.W3.Capability do
 
   Lifecycle state
   -------------
-  `status` records the current lifecycle state. P2 accepts the canonical
-  states defined by the architecture: `active`, `revoked`, `expired`.
-  Lifecycle transitions are owned by W3-P3 and are NOT implemented here.
+  `status` records the current lifecycle state per MA-06 §13:
+  `REQUESTED → AUTHORIZED → ISSUED → ACTIVE → CONSUMED / EXPIRED / REVOKED`.
+  P2 creates directly in `:active`. Lifecycle transitions are owned by
+  W3-P3 and are implemented in the CapabilityStore and CapabilityService.
 
   Bounded lifetime
   ---------------
@@ -73,7 +74,7 @@ defmodule Ankole.W3.Capability do
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @canonical_statuses [:active, :revoked, :expired]
+  @canonical_statuses [:active, :requested, :authorized, :issued, :consumed, :revoked, :expired]
   @canonical_risk_classes ~w(ROUTINE CONTROLLED HIGH-IMPACT PROHIBITED)
 
   schema "capabilities" do
