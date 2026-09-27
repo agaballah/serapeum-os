@@ -80,6 +80,14 @@ defmodule Ankole.W3.RiskClassifierTest do
       assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("cancel_task", nil, %{"anything" => "goes"})
     end
 
+    test "falls back to {action, nil} entry when called with non-nil resource" do
+      # Regression test: actions cataloged as {action, nil} must still
+      # resolve when called with a specific (non-nil) resource.
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("cancel_task", "workspace:default")
+      assert {:ok, "ROUTINE"} = RiskClassifier.classify("list_company_tasks", "any-resource")
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_task", "workspace:new")
+    end
+
     test "classification is deterministic" do
       action = "cancel_task"
       results = for _ <- 1..100, do: RiskClassifier.classify(action)

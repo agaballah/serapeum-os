@@ -119,7 +119,7 @@ defmodule Ankole.W3.RiskClassifier do
   @spec classify(String.t(), String.t() | nil, map()) ::
           {:ok, String.t()} | {:error, atom()}
   def classify(action, resource \\ nil, _context \\ %{}) do
-    case Map.get(@catalog, {action, resource}) || Map.get(@catalog, action) do
+    case Map.get(@catalog, {action, resource}) || Map.get(@catalog, {action, nil}) || Map.get(@catalog, action) do
       nil -> {:error, :unknown_action}
       class when class in @canonical_classes -> {:ok, class}
     end
