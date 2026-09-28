@@ -201,31 +201,43 @@ defmodule Ankole.WorkHierarchy.TaskStore do
   end
 
   defp validate_optional_references(repo, attrs, company_uid) do
-    with :ok <- validate_mission_reference(repo, attrs),
-         :ok <- validate_goal_reference(repo, attrs),
+    with :ok <- validate_mission_reference(repo, attrs, company_uid),
+         :ok <- validate_goal_reference(repo, attrs, company_uid),
          :ok <- validate_parent_task(repo, attrs, company_uid),
          :ok <- validate_accountable_agent(repo, attrs, company_uid) do
       :ok
     end
   end
 
-  defp validate_mission_reference(_repo, %{mission_uid: nil}), do: :ok
-  defp validate_mission_reference(repo, %{mission_uid: uid}) when is_binary(uid) do
-    case repo.one(from m in Mission, where: m.uid == ^uid, limit: 1) do
-      %Mission{} -> :ok
+  defp validate_mission_reference(_repo, %{mission_uid: nil}, _company_uid), do: :ok
+  defp validate_mission_reference(repo, %{mission_uid: uid}, company_uid) when is_binary(uid) do
+    case repo.one(
+           from m in Mission,
+             where: m.uid == ^uid,
+             select: m.company_uid,
+             limit: 1
+         ) do
+      ^company_uid -> :ok
       nil -> {:error, :mission_not_found}
+      _other -> {:error, :mission_different_company}
     end
   end
-  defp validate_mission_reference(_repo, _attrs), do: :ok
+  defp validate_mission_reference(_repo, _attrs, _company_uid), do: :ok
 
-  defp validate_goal_reference(_repo, %{goal_uid: nil}), do: :ok
-  defp validate_goal_reference(repo, %{goal_uid: uid}) when is_binary(uid) do
-    case repo.one(from g in Goal, where: g.uid == ^uid, limit: 1) do
-      %Goal{} -> :ok
+  defp validate_goal_reference(_repo, %{goal_uid: nil}, _company_uid), do: :ok
+  defp validate_goal_reference(repo, %{goal_uid: uid}, company_uid) when is_binary(uid) do
+    case repo.one(
+           from g in Goal,
+             where: g.uid == ^uid,
+             select: g.company_uid,
+             limit: 1
+         ) do
+      ^company_uid -> :ok
       nil -> {:error, :goal_not_found}
+      _other -> {:error, :goal_different_company}
     end
   end
-  defp validate_goal_reference(_repo, _attrs), do: :ok
+  defp validate_goal_reference(_repo, _attrs, _company_uid), do: :ok
 
   defp validate_parent_task(repo, %{parent_task_uid: parent_uid}, company_uid) when is_binary(parent_uid) do
     case repo.one(from t in Task, where: t.uid == ^parent_uid, select: t.company_uid) do

@@ -259,6 +259,284 @@ defmodule Ankole.WorkHierarchy.TaskStoreTest do
     end
   end
 
+  describe "create_task — Company isolation of Mission/Goal references" do
+    test "B8-T1 same-Company Mission is accepted" do
+      owner = human_owner_fixture()
+      company = company_fixture(owner.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, owner.uid)
+      end)
+
+      # Create a Mission in the same Company
+      {:ok, {mission, _revision}} = transact(fn repo ->
+        MissionStore.create_mission(repo, company.uid, %{
+          uid: "mission-same-company",
+          creator_principal_uid: owner.uid,
+          content: "Same Company Mission Content",
+          assigned_agent_uid: owner.uid
+        })
+      end)
+
+      # Create Task referencing same-Company Mission — should succeed
+      assert {:ok, task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b8t1",
+          creator_principal_uid: owner.uid,
+          mission_uid: mission.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert task.mission_uid == mission.uid
+    end
+
+    test "B8-T2 cross-Company Mission is rejected" do
+      owner_a = human_owner_fixture()
+      company_a = company_fixture(owner_a.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_a.uid, owner_a.uid)
+      end)
+
+      owner_b = human_owner_fixture()
+      company_b = company_fixture(owner_b.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, owner_b.uid)
+      end)
+
+      # Create a Mission in Company B
+      {:ok, {mission_b, _revision}} = transact(fn repo ->
+        MissionStore.create_mission(repo, company_b.uid, %{
+          uid: "mission-other-company",
+          creator_principal_uid: owner_b.uid,
+          content: "Other Company Mission Content",
+          assigned_agent_uid: owner_b.uid
+        })
+      end)
+
+      # Create Task in Company A referencing Mission in Company B — should fail
+      assert {:error, :mission_different_company} = transact(fn repo ->
+        TaskStore.create_task(repo, company_a.uid, %{
+          uid: "task-b8t2",
+          creator_principal_uid: owner_a.uid,
+          mission_uid: mission_b.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+    end
+
+    test "B8-T3 nonexistent Mission still returns :mission_not_found" do
+      owner = human_owner_fixture()
+      company = company_fixture(owner.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, owner.uid)
+      end)
+
+      assert {:error, :mission_not_found} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b8t3",
+          creator_principal_uid: owner.uid,
+          mission_uid: "nonexistent-mission-uid",
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+    end
+
+    test "B9-T1 same-Company Goal is accepted" do
+      owner = human_owner_fixture()
+      company = company_fixture(owner.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, owner.uid)
+      end)
+
+      # Create a Goal in the same Company
+      {:ok, goal} = transact(fn repo ->
+        GoalStore.create_goal(repo, company.uid, %{
+          uid: "goal-same-company",
+          creator_principal_uid: owner.uid,
+          title: "Same Company Goal"
+        })
+      end)
+
+      # Create Task referencing same-Company Goal — should succeed
+      assert {:ok, task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b9t1",
+          creator_principal_uid: owner.uid,
+          goal_uid: goal.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert task.goal_uid == goal.uid
+    end
+
+    test "B9-T2 cross-Company Goal is rejected" do
+      owner_a = human_owner_fixture()
+      company_a = company_fixture(owner_a.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_a.uid, owner_a.uid)
+      end)
+
+      owner_b = human_owner_fixture()
+      company_b = company_fixture(owner_b.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, owner_b.uid)
+      end)
+
+      # Create a Goal in Company B
+      {:ok, goal_b} = transact(fn repo ->
+        GoalStore.create_goal(repo, company_b.uid, %{
+          uid: "goal-other-company",
+          creator_principal_uid: owner_b.uid,
+          title: "Other Company Goal"
+        })
+      end)
+
+      # Create Task in Company A referencing Goal in Company B — should fail
+      assert {:error, :goal_different_company} = transact(fn repo ->
+        TaskStore.create_task(repo, company_a.uid, %{
+          uid: "task-b9t2",
+          creator_principal_uid: owner_a.uid,
+          goal_uid: goal_b.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+    end
+
+    test "B9-T3 nonexistent Goal still returns :goal_not_found" do
+      owner = human_owner_fixture()
+      company = company_fixture(owner.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, owner.uid)
+      end)
+
+      assert {:error, :goal_not_found} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b9t3",
+          creator_principal_uid: owner.uid,
+          goal_uid: "nonexistent-goal-uid",
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+    end
+
+    test "Combined: same-Company Mission + cross-Company Goal is rejected" do
+      owner_a = human_owner_fixture()
+      company_a = company_fixture(owner_a.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_a.uid, owner_a.uid)
+      end)
+
+      owner_b = human_owner_fixture()
+      company_b = company_fixture(owner_b.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, owner_b.uid)
+      end)
+
+      {:ok, {mission_a, _revision}} = transact(fn repo ->
+        MissionStore.create_mission(repo, company_a.uid, %{
+          uid: "mission-a",
+          creator_principal_uid: owner_a.uid,
+          content: "Mission A Content",
+          assigned_agent_uid: owner_a.uid
+        })
+      end)
+
+      {:ok, goal_b} = transact(fn repo ->
+        GoalStore.create_goal(repo, company_b.uid, %{
+          uid: "goal-b",
+          creator_principal_uid: owner_b.uid,
+          title: "Goal B"
+        })
+      end)
+
+      # Task in Company A, Mission A valid, Goal B cross-company — should fail
+      assert {:error, :goal_different_company} = transact(fn repo ->
+        TaskStore.create_task(repo, company_a.uid, %{
+          uid: "task-combo-1",
+          creator_principal_uid: owner_a.uid,
+          mission_uid: mission_a.uid,
+          goal_uid: goal_b.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+    end
+
+    test "Combined: cross-Company Mission + same-Company Goal is rejected" do
+      owner_a = human_owner_fixture()
+      company_a = company_fixture(owner_a.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_a.uid, owner_a.uid)
+      end)
+
+      owner_b = human_owner_fixture()
+      company_b = company_fixture(owner_b.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, owner_b.uid)
+      end)
+
+      {:ok, {mission_b, _revision}} = transact(fn repo ->
+        MissionStore.create_mission(repo, company_b.uid, %{
+          uid: "mission-b",
+          creator_principal_uid: owner_b.uid,
+          content: "Mission B Content",
+          assigned_agent_uid: owner_b.uid
+        })
+      end)
+
+      {:ok, goal_a} = transact(fn repo ->
+        GoalStore.create_goal(repo, company_a.uid, %{
+          uid: "goal-a",
+          creator_principal_uid: owner_a.uid,
+          title: "Goal A"
+        })
+      end)
+
+      # Task in Company A, Mission B cross-company, Goal A valid — should fail
+      assert {:error, :mission_different_company} = transact(fn repo ->
+        TaskStore.create_task(repo, company_a.uid, %{
+          uid: "task-combo-2",
+          creator_principal_uid: owner_a.uid,
+          mission_uid: mission_b.uid,
+          goal_uid: goal_a.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+    end
+  end
+
   describe "validate_assignment_eligibility" do
     test "valid Agent in same Company returns :ok" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()
