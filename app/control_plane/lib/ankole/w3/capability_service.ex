@@ -11,10 +11,10 @@ defmodule Ankole.W3.CapabilityService do
   to later W3 packages.
   """
 
+  alias Ankole.Company
   alias Ankole.Company.MembershipStore
   alias Ankole.PrincipalKey
   alias Ankole.Principals.Principal
-  alias Ankole.Repo
   alias Ankole.W3.Capability
   alias Ankole.W3.CapabilityStore
 
@@ -186,15 +186,15 @@ defmodule Ankole.W3.CapabilityService do
     |> repo.insert()
   end
 
-  defp do_revoke(_repo, capability) do
+  defp do_revoke(repo, capability) do
     now = DateTime.utc_now()
     changeset = Ecto.Changeset.change(capability) |> Ecto.Changeset.put_change(:status, :revoked) |> Ecto.Changeset.put_change(:revoked_at, now)
-    Repo.update(changeset)
+    repo.update(changeset)
   end
 
-  defp do_expire(_repo, capability) do
+  defp do_expire(repo, capability) do
     changeset = Ecto.Changeset.change(capability) |> Ecto.Changeset.put_change(:status, :expired)
-    Repo.update(changeset)
+    repo.update(changeset)
   end
 
   defp check_validation(repo, %Capability{} = capability, opts) do
@@ -236,8 +236,8 @@ defmodule Ankole.W3.CapabilityService do
   defp check_not_revoked(%Capability{revoked_at: _}), do: {:error, :revoked}
 
   defp check_parent_active(_repo, nil), do: :ok
-  defp check_parent_active(_repo, parent_uid) do
-    case Repo.get(Capability, uid: parent_uid) do
+  defp check_parent_active(repo, parent_uid) do
+    case repo.get_by(Capability, uid: parent_uid) do
       %Capability{status: :active} -> :ok
       _ -> {:error, :parent_capability_invalid}
     end
@@ -268,9 +268,9 @@ defmodule Ankole.W3.CapabilityService do
     end
   end
 
-  defp assert_company_exists(_repo, company_uid) do
-    case Repo.get_by(Ankole.Company, uid: company_uid) do
-      %Ankole.Company{} -> :ok
+  defp assert_company_exists(repo, company_uid) do
+    case repo.get_by(Company, uid: company_uid) do
+      %Company{} -> :ok
       nil -> {:error, :company_not_found}
     end
   end
@@ -299,8 +299,8 @@ defmodule Ankole.W3.CapabilityService do
     end
   end
 
-  defp assert_unique_uid(_repo, uid) do
-    case Repo.get_by(Capability, uid: uid) do
+  defp assert_unique_uid(repo, uid) do
+    case repo.get_by(Capability, uid: uid) do
       nil -> :ok
       %Capability{} -> {:error, {:duplicate, :uid}}
     end

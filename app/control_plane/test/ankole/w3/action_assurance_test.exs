@@ -467,7 +467,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       # These should all fail without creating receipts
       assert {:error, :authz_denied} =
-               ActionAssurance.assure(Ankole.Repo, company.uid, holder.uid, "forbidden_action", "x")
+               ActionAssurance.assure(Ankole.Repo, company.uid, holder.uid, "create_task", "x")
 
       assert {:error, :invalid_action} =
                ActionAssurance.assure(Ankole.Repo, company.uid, holder.uid, "", "x")
@@ -493,20 +493,21 @@ defmodule Ankole.W3.ActionAssuranceTest do
       # finalize_assurance accepts any map as context; it doesn't enforce
       # that assure was called first. The receipt captures whatever context
       # was passed in.
-      context = %{
-        receipt_uid: "test-receipt-001",
-        intent_action: "list_company_tasks",
-        intent_resource: "workspace:default",
-        principal_uid: holder.uid,
-        company_uid: company.uid,
-        risk_class: "ROUTINE",
-        authz_decision: "ALLOW",
-        precondition_status: "met",
-        approval_uid: nil,
-        approval_independent: true,
-        capability_uid: nil,
-        postcondition_expected: %{}
-      }
+       context = %{
+         receipt_uid: "test-receipt-001",
+         intent_action: "list_company_tasks",
+         intent_resource: "workspace:default",
+         principal_uid: holder.uid,
+         company_uid: company.uid,
+         risk_class: "ROUTINE",
+         authz_decision: "ALLOW",
+         precondition_status: "met",
+         approval_uid: nil,
+         approval_independent: true,
+         capability_uid: nil,
+         broker_name: nil,
+         postcondition_expected: %{}
+       }
 
       assert {:ok, receipt} =
                ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})

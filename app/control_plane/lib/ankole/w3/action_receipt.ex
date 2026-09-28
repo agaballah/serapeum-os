@@ -37,6 +37,7 @@ defmodule Ankole.W3.ActionReceipt do
     field :precondition_status, :string
     field :approval_uid, :string
     field :approval_independent, :boolean, default: true
+    field :broker_name, :string
     field :postcondition_expected, :map, default: %{}
     field :postcondition_verified, :boolean
     field :verified_at, :utc_datetime_usec
@@ -78,6 +79,7 @@ defmodule Ankole.W3.ActionReceipt do
       :precondition_status,
       :approval_uid,
       :approval_independent,
+      :broker_name,
       :capability_uid,
       :postcondition_expected,
       :postcondition_verified,

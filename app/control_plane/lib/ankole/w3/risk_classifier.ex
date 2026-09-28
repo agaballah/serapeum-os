@@ -62,6 +62,7 @@ defmodule Ankole.W3.RiskClassifier do
     {"fetch_review", nil} => "ROUTINE",
     {"list_task_reviews", nil} => "ROUTINE",
     {"list_result_reviews", nil} => "ROUTINE",
+    {"workspace_read", nil} => "ROUTINE",
     {"validate_assignment_eligibility", nil} => "ROUTINE",
     # Task creation — CONTROLLED
     {"create_task", nil} => "CONTROLLED",

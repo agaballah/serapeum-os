@@ -27,7 +27,6 @@ defmodule Ankole.W3.ActionAssurance do
 
   import Ecto.Query
 
-  alias Ankole.Repo
   alias Ankole.W3.ActionReceipt
   alias Ankole.W3.ApprovalStore
   alias Ankole.W3.AuthZ, as: W3AuthZ
@@ -90,10 +89,12 @@ defmodule Ankole.W3.ActionAssurance do
         approval_uid: approval_uid,
         approval_independent: true,
         capability_uid: capability_uid,
+        broker_name: nil,
         postcondition_expected: postcondition_expected
       }}
     else
       {:error, :prohibited} -> {:error, :prohibited}
+      {:error, :unknown_action} -> {:error, :unknown_action}
       {:error, :authz_denied} -> {:error, :authz_denied}
       {:error, :capability_invalid} -> {:error, :capability_invalid}
       {:error, :approval_required} -> {:error, :approval_required}
@@ -127,19 +128,19 @@ defmodule Ankole.W3.ActionAssurance do
   Fetches one receipt by its stable UID.
   """
   @spec fetch_receipt(Ecto.Repo.t(), String.t()) :: ActionReceipt.t() | nil
-  def fetch_receipt(_repo, receipt_uid) do
-    Repo.get_by(ActionReceipt, receipt_uid: receipt_uid)
+  def fetch_receipt(repo, receipt_uid) do
+    repo.get_by(ActionReceipt, receipt_uid: receipt_uid)
   end
 
   @doc """
   Lists receipts within one Company, ordered by creation time descending.
   """
   @spec list_company_receipts(Ecto.Repo.t(), String.t()) :: [ActionReceipt.t()]
-  def list_company_receipts(_repo, company_uid) do
+  def list_company_receipts(repo, company_uid) do
     ActionReceipt
     |> where([r], r.company_uid == ^company_uid)
     |> order_by([r], desc: r.inserted_at)
-    |> Repo.all()
+    |> repo.all()
   end
 
   # ─── private helpers ────────────────────────────────────────────────────
@@ -163,7 +164,7 @@ defmodule Ankole.W3.ActionAssurance do
   defp classify_risk(action, resource) do
     case RiskClassifier.classify(action, resource) do
       {:ok, class} -> {:ok, class}
-      {:error, :unknown_action} -> {:ok, "CONTROLLED"}
+      {:error, :unknown_action} -> {:error, :unknown_action}
     end
   end
 
@@ -224,6 +225,7 @@ defmodule Ankole.W3.ActionAssurance do
       approval_uid: context.approval_uid,
       approval_independent: context.approval_independent,
       capability_uid: context.capability_uid,
+      broker_name: context.broker_name,
       postcondition_expected: context.postcondition_expected,
       postcondition_verified: verified?,
       verified_at: DateTime.utc_now(),
