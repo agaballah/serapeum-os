@@ -530,7 +530,19 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
-  Authorizes one exact action on one concrete resource.
+  Authorizes one exact action on one concrete resource through the caller's
+  repository.
+  """
+  @spec authorize(Ecto.Repo.t(), String.t(), String.t(), String.t(), map()) :: decision_result()
+  def authorize(repo, principal_uid, resource, action, context) do
+    with {:ok, decision} <- authorize_decision(repo, principal_uid, resource, action, context) do
+      Decision.result(decision)
+    end
+  end
+
+  @doc """
+  Authorizes one exact action on one concrete resource through the global
+  repository.
   """
   @spec authorize(String.t(), String.t(), String.t(), map()) :: decision_result()
   def authorize(principal_uid, resource, action, context \\ %{}) do
@@ -563,7 +575,18 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
-  Returns the raw kernel decision for one exact action.
+  Returns the raw kernel decision for one exact action through the caller's
+  repository.
+  """
+  @spec authorize_decision(Ecto.Repo.t(), String.t(), String.t(), String.t(), map()) ::
+          {:ok, decision()} | {:error, term()}
+  def authorize_decision(repo, principal_uid, resource, action, context) do
+    Decision.authorize_decision(repo, principal_uid, resource, action, context)
+  end
+
+  @doc """
+  Returns the raw kernel decision for one exact action through the global
+  repository.
   """
   @spec authorize_decision(String.t(), String.t(), String.t(), map()) ::
           {:ok, decision()} | {:error, term()}
@@ -588,6 +611,16 @@ defmodule Ankole.AuthZ do
           {:ok, decision()} | {:error, term()}
   def authorize_all_decision(principal_uid, resource, actions, context \\ %{}) do
     Decision.authorize_all_decision(principal_uid, resource, actions, context)
+  end
+
+  @doc """
+  Builds the explicit kernel snapshot for one authorization request through the
+  caller's repository.
+  """
+  @spec build_authorization_snapshot(Ecto.Repo.t(), String.t(), String.t(), String.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def build_authorization_snapshot(repo, principal_uid, resource, action, context) do
+    Snapshot.build_authorization_snapshot(repo, principal_uid, resource, action, context)
   end
 
   @doc """

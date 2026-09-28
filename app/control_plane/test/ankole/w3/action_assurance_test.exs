@@ -10,10 +10,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
   use Ankole.DataCase, async: true
 
   alias Ankole.AuthZ
+  alias Ankole.AuthZ.Grants
   alias Ankole.Company
   alias Ankole.Company.MembershipStore
   alias Ankole.Repo
   alias Ankole.W3.ActionReceipt
+  alias Ankole.W3.AuthZ, as: W3AuthZ
   alias Ankole.W3.Capability
   alias Ankole.W3.ApprovalStore
   alias Ankole.W3.RiskClassifier
@@ -687,6 +689,147 @@ defmodule Ankole.W3.ActionAssuranceTest do
       # Most recent first
       assert receipts |> Enum.at(0) |> Map.get(:intent_resource) == "workspace:two"
       assert receipts |> Enum.at(1) |> Map.get(:intent_resource) == "workspace:one"
+    end
+  end
+
+  # ─── B-1: caller repository propagation ──────────────────────────────────
+
+  describe "B-1 transaction-scoped repository" do
+    test "B1-T1 assurance reads the caller's uncommitted grant, not the global view" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-p5-b1t1-h")
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+
+      grant = %{
+        principal_uid: holder.uid,
+        company_uid: company.uid,
+        resource_pattern: "workspace:**",
+        action: "list_company_tasks",
+        condition: "true"
+      }
+
+      # Insert the grant inside a transaction and then force a rollback so it
+      # never commits. If assure/6 threads its repo argument correctly, it sees
+      # the uncommitted grant; if it fell back to Ankole.Repo, it would deny.
+      try do
+        Repo.transact(fn repo ->
+          Grants.create_permission_grant(repo, grant)
+          {:ok, _ctx} =
+            ActionAssurance.assure(
+              repo,
+              company.uid,
+              holder.uid,
+              "list_company_tasks",
+              "workspace:default"
+            )
+
+          # Force rollback so the global repo never sees this grant.
+          raise "rollback"
+        end)
+      rescue
+        _ -> :ok
+      end
+
+      # The grant was rolled back; the global-assurance path denies.
+      assert {:error, :authz_denied} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default"
+               )
+    end
+
+    test "B1-T2 W3 AuthZ reads the caller's uncommitted membership" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-p5-b1t2-h")
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      # The holder is not a member yet, so the Company boundary denies.
+      assert {:error, :company_scope_mismatch} =
+               W3AuthZ.authorize(
+                 company.uid,
+                 holder.uid,
+                 "workspace:default",
+                 "list_company_tasks",
+                 %{}
+               )
+
+      # Add the membership inside a transaction and force a rollback so it is
+      # never committed. The repo-aware authorize sees it; the global one does
+      # not.
+      try do
+        Repo.transact(fn repo ->
+          MembershipStore.add_member(repo, company.uid, holder.uid)
+
+          :ok =
+            W3AuthZ.authorize(
+              repo,
+              company.uid,
+              holder.uid,
+              "workspace:default",
+              "list_company_tasks",
+              %{}
+            )
+
+          raise "rollback"
+        end)
+      rescue
+        _ -> :ok
+      end
+
+      # Rolled back, so the global repository still denies.
+      assert {:error, :company_scope_mismatch} =
+               W3AuthZ.authorize(
+                 company.uid,
+                 holder.uid,
+                 "workspace:default",
+                 "list_company_tasks",
+                 %{}
+               )
+    end
+
+    test "B1-T3 non-member still denies through the repository-aware path" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: stranger} = human_fixture(uid: "w3-p5-b1t3-s")
+      grant_fixture(stranger.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      assert {:error, :authz_denied} =
+               transact(fn repo ->
+                 ActionAssurance.assure(
+                   repo,
+                   company.uid,
+                   stranger.uid,
+                   "list_company_tasks",
+                   "workspace:default"
+                 )
+               end)
+    end
+
+    test "B1-T4 committed fixture still allows through the repository-aware path" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-p5-b1t4-h")
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      assert {:ok, context} =
+               Repo.transact(fn repo ->
+                 ActionAssurance.assure(
+                   repo,
+                   company.uid,
+                   holder.uid,
+                   "list_company_tasks",
+                   "workspace:default"
+                 )
+               end)
+
+      assert context.company_uid == company.uid
+      assert context.principal_uid == holder.uid
     end
   end
 

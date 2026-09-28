@@ -52,12 +52,13 @@ defmodule Ankole.W3.AuthZ do
   does not exist or is disabled, or the Principal is not a member of the
   Company.
   """
-  @spec authorize(String.t(), String.t(), String.t(), String.t(), map()) :: decision_result()
-  def authorize(company_uid, principal_uid, resource, action, context \\ %{}) do
-    with :ok <- validate_company(company_uid),
-         :ok <- validate_principal(principal_uid),
-         :ok <- validate_membership(company_uid, principal_uid),
-         :ok <- AuthZ.authorize(principal_uid, resource, action, context) do
+  @spec authorize(Ecto.Repo.t(), String.t(), String.t(), String.t(), String.t(), map()) ::
+          decision_result()
+  def authorize(repo, company_uid, principal_uid, resource, action, context) do
+    with :ok <- validate_company(repo, company_uid),
+         :ok <- validate_principal(repo, principal_uid),
+         :ok <- validate_membership(repo, company_uid, principal_uid),
+         :ok <- AuthZ.authorize(repo, principal_uid, resource, action, context) do
       :ok
     else
       {:error, :company_not_found} -> {:error, :company_scope_mismatch}
@@ -66,6 +67,11 @@ defmodule Ankole.W3.AuthZ do
       {:error, :not_member} -> {:error, :company_scope_mismatch}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @spec authorize(String.t(), String.t(), String.t(), String.t(), map()) :: decision_result()
+  def authorize(company_uid, principal_uid, resource, action, context \\ %{}) do
+    authorize(Ankole.Repo, company_uid, principal_uid, resource, action, context)
   end
 
   @doc """
@@ -85,13 +91,13 @@ defmodule Ankole.W3.AuthZ do
 
   Returns `:ok` only when the Principal is an active member of the Company.
   """
-  @spec build_snapshot(String.t(), String.t(), String.t(), String.t(), map()) ::
+  @spec build_snapshot(Ecto.Repo.t(), String.t(), String.t(), String.t(), String.t(), map()) ::
           {:ok, map()} | {:error, term()}
-  def build_snapshot(company_uid, principal_uid, resource, action, context \\ %{}) do
-    with :ok <- validate_company(company_uid),
-         :ok <- validate_principal(principal_uid),
-         :ok <- validate_membership(company_uid, principal_uid) do
-      AuthZ.build_authorization_snapshot(principal_uid, resource, action, context)
+  def build_snapshot(repo, company_uid, principal_uid, resource, action, context) do
+    with :ok <- validate_company(repo, company_uid),
+         :ok <- validate_principal(repo, principal_uid),
+         :ok <- validate_membership(repo, company_uid, principal_uid) do
+      AuthZ.build_authorization_snapshot(repo, principal_uid, resource, action, context)
     else
       {:error, :company_not_found} -> {:error, :company_scope_mismatch}
       {:error, :principal_not_found} -> {:error, :principal_not_found}
@@ -101,25 +107,31 @@ defmodule Ankole.W3.AuthZ do
     end
   end
 
+  @spec build_snapshot(String.t(), String.t(), String.t(), String.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def build_snapshot(company_uid, principal_uid, resource, action, context \\ %{}) do
+    build_snapshot(Ankole.Repo, company_uid, principal_uid, resource, action, context)
+  end
+
   # ─── Internal validation ────────────────────────────────────────────────
 
-  defp validate_company(nil), do: {:error, :company_scope_mismatch}
-  defp validate_company(""), do: {:error, :company_scope_mismatch}
+  defp validate_company(_repo, nil), do: {:error, :company_scope_mismatch}
+  defp validate_company(_repo, ""), do: {:error, :company_scope_mismatch}
 
-  defp validate_company(company_uid) when is_binary(company_uid) do
-    case Store.fetch_company(Ankole.Repo, company_uid) do
+  defp validate_company(repo, company_uid) when is_binary(company_uid) do
+    case Store.fetch_company(repo, company_uid) do
       %{} -> :ok
       nil -> {:error, :company_not_found}
     end
   end
 
-  defp validate_company(_), do: {:error, :company_scope_mismatch}
+  defp validate_company(_repo, _other), do: {:error, :company_scope_mismatch}
 
-  defp validate_principal(nil), do: {:error, :principal_not_found}
-  defp validate_principal(""), do: {:error, :principal_not_found}
+  defp validate_principal(_repo, nil), do: {:error, :principal_not_found}
+  defp validate_principal(_repo, ""), do: {:error, :principal_not_found}
 
-  defp validate_principal(principal_uid) when is_binary(principal_uid) do
-    case Principals.get_principal(principal_uid) do
+  defp validate_principal(repo, principal_uid) when is_binary(principal_uid) do
+    case Principals.get_principal(repo, principal_uid) do
       {:ok, %Principals.Principal{status: :active}} -> :ok
       {:ok, %Principals.Principal{status: :disabled}} -> {:error, :principal_disabled}
       {:ok, _} -> {:error, :principal_not_found}
@@ -127,10 +139,10 @@ defmodule Ankole.W3.AuthZ do
     end
   end
 
-  defp validate_principal(_), do: {:error, :principal_not_found}
+  defp validate_principal(_repo, _other), do: {:error, :principal_not_found}
 
-  defp validate_membership(company_uid, principal_uid) do
-    if MembershipStore.member?(Ankole.Repo, company_uid, principal_uid) do
+  defp validate_membership(repo, company_uid, principal_uid) do
+    if MembershipStore.member?(repo, company_uid, principal_uid) do
       :ok
     else
       {:error, :not_member}

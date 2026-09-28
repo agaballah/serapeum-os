@@ -4,10 +4,15 @@ defmodule Ankole.AuthZ.Decision do
   alias Ankole.AuthZ.Snapshot
   alias Ankole.Kernel, as: AnkoleKernel
   alias Ankole.Logging
+  alias Ankole.Repo
 
   def authorize_decision(principal_uid, resource, action, context \\ %{}) do
+    authorize_decision(Repo, principal_uid, resource, action, context)
+  end
+
+  def authorize_decision(repo, principal_uid, resource, action, context) do
     with {:ok, snapshot} <-
-           Snapshot.build_authorization_snapshot(principal_uid, resource, action, context),
+           Snapshot.build_authorization_snapshot(repo, principal_uid, resource, action, context),
          {:ok, decision} <- kernel_decision(AnkoleKernel.authz_authorize(snapshot)) do
       emit_diagnostics(decision)
       {:ok, decision}
@@ -15,8 +20,12 @@ defmodule Ankole.AuthZ.Decision do
   end
 
   def authorize_all_decision(principal_uid, resource, actions, context \\ %{}) do
+    authorize_all_decision(Repo, principal_uid, resource, actions, context)
+  end
+
+  def authorize_all_decision(repo, principal_uid, resource, actions, context) do
     with {:ok, snapshot} <-
-           Snapshot.build_authorization_batch_snapshot(principal_uid, resource, actions, context),
+           Snapshot.build_authorization_batch_snapshot(repo, principal_uid, resource, actions, context),
          {:ok, decision} <- kernel_decision(AnkoleKernel.authz_authorize_all(snapshot)) do
       emit_diagnostics(decision)
       {:ok, decision}

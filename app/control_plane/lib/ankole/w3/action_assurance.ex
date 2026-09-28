@@ -64,7 +64,7 @@ defmodule Ankole.W3.ActionAssurance do
           String.t() | nil,
           keyword()
         ) :: {:ok, map()} | {:error, atom()}
-  def assure(_repo, company_uid, principal_uid, action, resource, capability_uid \\ nil, opts \\ []) do
+  def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\ nil, opts \\ []) do
     approval_uid = Keyword.get(opts, :approval_uid)
     postcondition_expected = Keyword.get(opts, :postcondition_expected, %{})
 
@@ -72,10 +72,10 @@ defmodule Ankole.W3.ActionAssurance do
          {:ok, normalized_resource} <- normalize_resource(resource),
          {:ok, risk_class} <- classify_risk(normalized_action, normalized_resource),
          :ok <- check_not_prohibited(risk_class),
-         :ok <- check_authz(company_uid, principal_uid, normalized_action, normalized_resource),
-         :ok <- check_capability(company_uid, capability_uid, normalized_action),
+         :ok <- check_authz(repo, company_uid, principal_uid, normalized_action, normalized_resource),
+         :ok <- check_capability(repo, company_uid, capability_uid, normalized_action),
          :ok <- check_approval_requirement(risk_class, approval_uid),
-          :ok <- check_approval_independence(company_uid, approval_uid, principal_uid, normalized_action, normalized_resource),
+          :ok <- check_approval_independence(repo, company_uid, approval_uid, principal_uid, normalized_action, normalized_resource),
          {:ok, receipt_uid} <- generate_receipt_uid() do
       {:ok, %{
         receipt_uid: receipt_uid,
@@ -171,17 +171,17 @@ defmodule Ankole.W3.ActionAssurance do
   defp check_not_prohibited("PROHIBITED"), do: {:error, :prohibited}
   defp check_not_prohibited(_), do: :ok
 
-  defp check_authz(company_uid, principal_uid, action, resource) do
-    case W3AuthZ.authorize(company_uid, principal_uid, resource, action) do
+  defp check_authz(repo, company_uid, principal_uid, action, resource) do
+    case W3AuthZ.authorize(repo, company_uid, principal_uid, resource, action, %{}) do
       :ok -> :ok
       _ -> {:error, :authz_denied}
     end
   end
 
-  defp check_capability(_company_uid, nil, _action), do: :ok
+  defp check_capability(_repo, _company_uid, nil, _action), do: :ok
 
-  defp check_capability(company_uid, capability_uid, action) do
-    case CapabilityService.validate_capability(Ankole.Repo, company_uid, capability_uid, action: action) do
+  defp check_capability(repo, company_uid, capability_uid, action) do
+    case CapabilityService.validate_capability(repo, company_uid, capability_uid, action: action) do
       :ok -> :ok
       {:error, _} -> {:error, :capability_invalid}
     end
@@ -198,10 +198,10 @@ defmodule Ankole.W3.ActionAssurance do
   defp requires_approval?("HIGH-IMPACT"), do: true
   defp requires_approval?(_), do: false
 
-  defp check_approval_independence(_company_uid, nil, _principal_uid, _action, _resource), do: :ok
+  defp check_approval_independence(_repo, _company_uid, nil, _principal_uid, _action, _resource), do: :ok
 
-  defp check_approval_independence(company_uid, approval_uid, principal_uid, action, resource) do
-    case ApprovalStore.validate_for_assurance(Ankole.Repo, company_uid, approval_uid, principal_uid, action, resource) do
+  defp check_approval_independence(repo, company_uid, approval_uid, principal_uid, action, resource) do
+    case ApprovalStore.validate_for_assurance(repo, company_uid, approval_uid, principal_uid, action, resource) do
       :ok -> :ok
       {:error, _} -> {:error, :approval_invalid}
     end

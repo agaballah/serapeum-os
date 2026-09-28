@@ -61,17 +61,26 @@ defmodule Ankole.Principals do
   def normalize_email(_value), do: nil
 
   @doc """
-  Looks up a Principal by UID.
+  Looks up a Principal by UID through the caller's repository.
+
+  A caller inside a transaction must use this form so the read observes the
+  transaction's own uncommitted state instead of the committed global view.
   """
-  @spec get_principal(String.t()) :: principal_result()
-  def get_principal(uid) do
+  @spec get_principal(Ecto.Repo.t(), String.t()) :: principal_result()
+  def get_principal(repo, uid) do
     with {:ok, normalized_uid} <- normalize_uid(uid) do
-      case Repo.get(Principal, normalized_uid) do
+      case repo.get(Principal, normalized_uid) do
         %Principal{} = principal -> {:ok, principal}
         nil -> {:error, :not_found}
       end
     end
   end
+
+  @doc """
+  Looks up a Principal by UID through the global repository.
+  """
+  @spec get_principal(String.t()) :: principal_result()
+  def get_principal(uid), do: get_principal(Repo, uid)
 
   @doc """
   Lists active Principals ordered by UID.

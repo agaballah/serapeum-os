@@ -13,17 +13,25 @@ defmodule Ankole.AuthZ.Snapshot do
   alias Ankole.Repo
 
   def build_authorization_snapshot(principal_uid, resource, action, context \\ %{}) do
+    build_authorization_snapshot(Repo, principal_uid, resource, action, context)
+  end
+
+  def build_authorization_snapshot(repo, principal_uid, resource, action, context) do
     with {:ok, [action]} <- Input.normalize_actions([action]),
          {:ok, snapshot} <-
-           load_authorization_snapshot(Repo, principal_uid, resource, [action], context) do
+           load_authorization_snapshot(repo, principal_uid, resource, [action], context) do
       {:ok, Map.put(snapshot, "action", action)}
     end
   end
 
   def build_authorization_batch_snapshot(principal_uid, resource, actions, context \\ %{}) do
+    build_authorization_batch_snapshot(Repo, principal_uid, resource, actions, context)
+  end
+
+  def build_authorization_batch_snapshot(repo, principal_uid, resource, actions, context) do
     with {:ok, actions} <- Input.normalize_actions(actions),
          {:ok, snapshot} <-
-           load_authorization_snapshot(Repo, principal_uid, resource, actions, context) do
+           load_authorization_snapshot(repo, principal_uid, resource, actions, context) do
       {:ok, Map.put(snapshot, "actions", actions)}
     end
   end
