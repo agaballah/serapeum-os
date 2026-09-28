@@ -29,6 +29,7 @@ defmodule Ankole.W3.ActionAssurance do
 
   alias Ankole.Repo
   alias Ankole.W3.ActionReceipt
+  alias Ankole.W3.ApprovalStore
   alias Ankole.W3.AuthZ, as: W3AuthZ
   alias Ankole.W3.CapabilityService
   alias Ankole.W3.RiskClassifier
@@ -75,7 +76,7 @@ defmodule Ankole.W3.ActionAssurance do
          :ok <- check_authz(company_uid, principal_uid, normalized_action, normalized_resource),
          :ok <- check_capability(company_uid, capability_uid, normalized_action),
          :ok <- check_approval_requirement(risk_class, approval_uid),
-         :ok <- check_approval_independence(approval_uid, principal_uid),
+          :ok <- check_approval_independence(company_uid, approval_uid, principal_uid, normalized_action, normalized_resource),
          {:ok, receipt_uid} <- generate_receipt_uid() do
       {:ok, %{
         receipt_uid: receipt_uid,
@@ -196,15 +197,12 @@ defmodule Ankole.W3.ActionAssurance do
   defp requires_approval?("HIGH-IMPACT"), do: true
   defp requires_approval?(_), do: false
 
-  defp check_approval_independence(nil, _principal_uid), do: :ok
+  defp check_approval_independence(_company_uid, nil, _principal_uid, _action, _resource), do: :ok
 
-  defp check_approval_independence(approval_uid, _principal_uid) do
-    # P6 creates approvals; P5 validates that an approval reference exists.
-    # Full independence checks belong to P6's approval workflow.
-    if is_binary(approval_uid) and String.trim(approval_uid) != "" do
-      :ok
-    else
-      {:error, :approval_invalid}
+  defp check_approval_independence(company_uid, approval_uid, principal_uid, action, resource) do
+    case ApprovalStore.validate_for_assurance(Ankole.Repo, company_uid, approval_uid, principal_uid, action, resource) do
+      :ok -> :ok
+      {:error, _} -> {:error, :approval_invalid}
     end
   end
 

@@ -15,6 +15,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
   alias Ankole.Repo
   alias Ankole.W3.ActionReceipt
   alias Ankole.W3.Capability
+  alias Ankole.W3.ApprovalStore
   alias Ankole.W3.RiskClassifier
   alias Ankole.W3.ActionAssurance
 
@@ -280,24 +281,38 @@ defmodule Ankole.W3.ActionAssuranceTest do
                )
     end
 
-    test "accepts HIGH-IMPACT with a valid approval_uid reference" do
+    test "accepts HIGH-IMPACT with a valid P6 approval" do
       %{principal: owner} = human_fixture()
       company = company_fixture(owner.uid)
       %{principal: holder} = human_fixture(uid: "w3-p5-appv-ok-h")
-      %{principal: issuer} = human_fixture(uid: "w3-p5-appv-ok-i")
+      %{principal: approver} = human_fixture(uid: "w3-p5-appv-ok-a")
 
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
-      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, approver.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
+
+      # Create and approve an approval via P6
+      assert {:ok, approval} =
+        ApprovalStore.create_approval(Ankole.Repo, %{
+          uid: "w3-p6-valid-001",
+          company_uid: company.uid,
+          requester_uid: holder.uid,
+          action: "cancel_task",
+          resource: "workspace:default",
+          risk_class: "HIGH-IMPACT"
+        })
+
+      assert {:ok, _approved} =
+               ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
 
       assert {:ok, context} =
                ActionAssurance.assure(
                  Ankole.Repo, company.uid, holder.uid, "cancel_task",
-                 "workspace:default", nil, approval_uid: "w3-p6-approval-001"
+                 "workspace:default", nil, approval_uid: approval.uid
                )
 
       assert context.risk_class == "HIGH-IMPACT"
-      assert context.approval_uid == "w3-p6-approval-001"
+      assert context.approval_uid == approval.uid
     end
 
     test "does not require approval for CONTROLLED actions" do
@@ -536,19 +551,32 @@ defmodule Ankole.W3.ActionAssuranceTest do
       %{principal: owner} = human_fixture()
       company = company_fixture(owner.uid)
       %{principal: holder} = human_fixture(uid: "w3-p5-apr-h")
-      %{principal: issuer} = human_fixture(uid: "w3-p5-apr-i")
+      %{principal: approver} = human_fixture(uid: "w3-p5-apr-a")
 
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
-      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, approver.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
+
+      # Create and approve via P6
+      {:ok, approval} =
+        ApprovalStore.create_approval(Ankole.Repo, %{
+          uid: "w3-p6-apr-42",
+          company_uid: company.uid,
+          requester_uid: holder.uid,
+          action: "cancel_task",
+          resource: "workspace:default",
+          risk_class: "HIGH-IMPACT"
+        })
+
+      assert {:ok, _} = ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
 
       {:ok, context} =
         ActionAssurance.assure(
           Ankole.Repo, company.uid, holder.uid, "cancel_task",
-          "workspace:default", nil, approval_uid: "w3-p6-apr-42"
+          "workspace:default", nil, approval_uid: approval.uid
         )
 
-      assert context.approval_uid == "w3-p6-apr-42"
+      assert context.approval_uid == approval.uid
 
       assert {:ok, receipt} =
                ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
@@ -704,25 +732,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
     test "assure/6 body does not contain repo.insert" do
       source = File.read!("lib/ankole/w3/action_assurance.ex")
-      # assure/6 should not directly call repo.insert — that belongs in save_receipt
-      # which is only called from finalize_assurance.
-      # We check that the function body of assure doesn't have repo.insert.
-      # The source contains repo.insert in save_receipt (called from finalize_assurance),
-      # but not inside assure itself.
-      lines = String.split(source, "\n")
-      in_assure = false
-      assure_has_insert = false
-
-      for line <- lines do
-        cond do
-          String.match?(line, ~r/^  def assure/) -> in_assure = true
-          String.match?(line, ~r/^  def [a-z]/) and in_assure -> in_assure = false
-          String.contains?(line, "repo.insert") and in_assure -> assure_has_insert = true
-          true -> :ok
-        end
-      end
-
-      refute assure_has_insert
+      # repo.insert should appear exactly once in save_receipt (called from finalize_assurance)
+      insert_count = String.split(source, "\n") |> Enum.count(&String.contains?(&1, "repo.insert"))
+      assert insert_count == 1
+      # assure function exists and finalize_assurance exists
+      assert String.contains?(source, "def assure(")
+      assert String.contains?(source, "def finalize_assurance(")
     end
 
     test "finalize_assurance/4 contains the sole repo.insert call" do
