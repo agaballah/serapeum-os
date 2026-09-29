@@ -529,4 +529,68 @@ defmodule Ankole.WorkHierarchy.TaskStoreConcurrencyTest do
       assert task.version == 4
     end
   end
+
+  # ─── M.14: B10 reciprocal concurrent delegation ────────────────────────────
+
+  describe "concurrent reciprocal delegation" do
+    test "B10-C1 reciprocal delegations do not deadlock when only the delegator row is locked" do
+      p1 = human_owner_fixture()
+      p2 = human_owner_fixture()
+      company = company_fixture(p1.uid)
+
+      {:ok, _membership_p1} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, p1.uid)
+      end)
+
+      {:ok, _membership_p2} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, p2.uid)
+      end)
+
+      {:ok, source_task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b10c1-source-001",
+          creator_principal_uid: p1.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      parent = self()
+
+      task_a =
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.allow(Repo, parent, self())
+
+          Repo.transact(fn repo ->
+            TaskStore.create_delegation(repo, company.uid, source_task.uid, p1.uid, p2.uid, %{
+              scope_description: "P1 delegates to P2."
+            })
+          end)
+        end)
+
+      task_b =
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.allow(Repo, parent, self())
+
+          Repo.transact(fn repo ->
+            TaskStore.create_delegation(repo, company.uid, source_task.uid, p2.uid, p1.uid, %{
+              scope_description: "P2 delegates to P1."
+            })
+          end)
+        end)
+
+      results = [Task.await(task_a, 15_000), Task.await(task_b, 15_000)]
+
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 2,
+             "expected both reciprocal delegations to commit, got: #{inspect(results)}"
+
+      delegations = Repo.all(Ankole.WorkHierarchy.DelegationRecord)
+      assert length(delegations) == 2
+
+      assert Enum.all?(delegations, &(&1.delegatee_principal_uid in [p1.uid, p2.uid]))
+    end
+  end
 end

@@ -983,6 +983,257 @@ defmodule Ankole.WorkHierarchy.TaskStoreDelegationTest do
     end
   end
 
+  describe "create_delegation — B10 delegatee validation" do
+    test "B10-T1 valid same-Company delegatee succeeds" do
+      human = human_owner_fixture()
+      company = company_fixture(human.uid)
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+
+      {:ok, _membership_human} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+
+      assert {:ok, _membership_agent} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, agent.uid)
+      end)
+
+      {:ok, source_task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "del-b10t1",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert {:ok, delegation} = transact(fn repo ->
+        TaskStore.create_delegation(repo, company.uid, source_task.uid, human.uid, agent.uid, %{
+          scope_description: "Delegate to agent."
+        })
+      end)
+
+      assert delegation.delegatee_principal_uid == agent.uid
+    end
+
+    test "B10-T2 nonexistent delegatee is rejected" do
+      human = human_owner_fixture()
+      company = company_fixture(human.uid)
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+
+      {:ok, source_task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "del-b10t2",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert {:error, :not_found} = transact(fn repo ->
+        TaskStore.create_delegation(repo, company.uid, source_task.uid, human.uid, "nonexistent-delegatee", %{
+          scope_description: "Delegate to unknown."
+        })
+      end)
+    end
+
+    test "B10-T3 malformed delegatee UID is rejected" do
+      human = human_owner_fixture()
+      company = company_fixture(human.uid)
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+
+      {:ok, source_task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "del-b10t3",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      # Non-binary UID (integer) should be rejected as invalid_uid
+      assert {:error, :invalid_uid} = transact(fn repo ->
+        TaskStore.create_delegation(repo, company.uid, source_task.uid, human.uid, 12345, %{
+          scope_description: "Delegate."
+        })
+      end)
+
+      # Well-formed but nonexistent UID should be rejected as not_found
+      assert {:error, :not_found} = transact(fn repo ->
+        TaskStore.create_delegation(repo, company.uid, source_task.uid, human.uid, "not-a-valid-uid", %{
+          scope_description: "Delegate."
+        })
+      end)
+    end
+
+    test "B10-T4 cross-Company delegatee (Human) is rejected" do
+      owner_a = human_owner_fixture()
+      company_a = company_fixture(owner_a.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_a.uid, owner_a.uid)
+      end)
+
+      owner_b = human_owner_fixture()
+      company_b = company_fixture(owner_b.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, owner_b.uid)
+      end)
+
+      # Create delegatee Human in Company B
+      %{principal: human_b} = PrincipalsFixtures.human_fixture()
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, human_b.uid)
+      end)
+
+      {:ok, source_task} = transact(fn repo ->
+        TaskStore.create_task(repo, company_a.uid, %{
+          uid: "del-b10t4",
+          creator_principal_uid: owner_a.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert {:error, :delegatee_different_company} = transact(fn repo ->
+        TaskStore.create_delegation(repo, company_a.uid, source_task.uid, owner_a.uid, human_b.uid, %{
+          scope_description: "Cross-company delegation."
+        })
+      end)
+    end
+
+    test "B10-T4b cross-Company delegatee (Agent) is rejected" do
+      owner_a = human_owner_fixture()
+      company_a = company_fixture(owner_a.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_a.uid, owner_a.uid)
+      end)
+
+      owner_b = human_owner_fixture()
+      company_b = company_fixture(owner_b.uid)
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, owner_b.uid)
+      end)
+
+      # Create delegatee Agent in Company B
+      %{principal: agent_b} = PrincipalsFixtures.agent_fixture()
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, agent_b.uid)
+      end)
+
+      {:ok, source_task} = transact(fn repo ->
+        TaskStore.create_task(repo, company_a.uid, %{
+          uid: "del-b10t4b",
+          creator_principal_uid: owner_a.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert {:error, :delegatee_different_company} = transact(fn repo ->
+        TaskStore.create_delegation(repo, company_a.uid, source_task.uid, owner_a.uid, agent_b.uid, %{
+          scope_description: "Cross-company delegation."
+        })
+      end)
+    end
+
+    test "B10-T5 disabled delegatee is rejected" do
+      human = human_owner_fixture()
+      company = company_fixture(human.uid)
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+
+      # Disable the agent
+      assert {:ok, _disabled_agent} =
+               agent
+               |> Ankole.Principals.Principal.changeset(%{status: :disabled})
+               |> Repo.update()
+
+      assert {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, agent.uid)
+      end)
+
+      {:ok, source_task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "del-b10t5",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert {:error, {:creator_not_active, :disabled}} = transact(fn repo ->
+        TaskStore.create_delegation(repo, company.uid, source_task.uid, human.uid, agent.uid, %{
+          scope_description: "Delegate to disabled agent."
+        })
+      end)
+    end
+
+    test "B10-T8 cross-Company source task is rejected" do
+      human_a = human_owner_fixture()
+      company_a = company_fixture(human_a.uid)
+      human_b = human_owner_fixture()
+      company_b = company_fixture(human_b.uid)
+
+      {:ok, _membership_a_delegator} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_a.uid, human_a.uid)
+      end)
+
+      {:ok, _membership_a_delegatee} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_a.uid, human_b.uid)
+      end)
+
+      {:ok, _membership_b} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company_b.uid, human_b.uid)
+      end)
+
+      {:ok, foreign_source_task} = transact(fn repo ->
+        TaskStore.create_task(repo, company_b.uid, %{
+          uid: "del-b10t8-foreign-source",
+          creator_principal_uid: human_b.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert {:error, :source_task_not_found} = transact(fn repo ->
+        TaskStore.create_delegation(repo, company_a.uid, foreign_source_task.uid, human_a.uid, human_b.uid, %{
+          scope_description: "Delegate against a foreign Company task."
+        })
+      end)
+
+      assert Repo.all(Ankole.WorkHierarchy.DelegationRecord) == []
+    end
+  end
+
   # ─── read-only helpers ──────────────────────────────────────────────────────
 
   describe "list_dependencies" do

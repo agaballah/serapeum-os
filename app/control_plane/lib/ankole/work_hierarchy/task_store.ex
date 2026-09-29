@@ -738,7 +738,8 @@ defmodule Ankole.WorkHierarchy.TaskStore do
 
   Validates that the delegator is an active Principal with Company membership.
   Validates that the source Task exists and belongs to the Company. The
-  delegatee may be nil.
+  delegatee may be nil; when provided, it must be an active Principal of
+  permitted type who belongs to the same Company as the source Task.
   """
   @spec create_delegation(Ecto.Repo.t(), String.t(), String.t(), String.t(), String.t(), map()) ::
           {:ok, DelegationRecord.t()} | {:error, term()}
@@ -747,10 +748,11 @@ defmodule Ankole.WorkHierarchy.TaskStore do
           {:ok, normalized_delegator} <- normalize_uid(delegator_principal_uid),
           {:ok, locked_delegator} <- fetch_principal_for_update(repo, normalized_delegator),
           :ok <- validate_delegator_eligible(repo, locked_delegator, company_uid),
+          {:ok, normalized_delegatee} <- validate_delegatee(repo, company_uid, delegatee_principal_uid),
           {:ok, scope_description} <- validate_scope_description(opts[:scope_description]),
           {:ok, delegation_uid} <- generate_delegation_uid() do
       insert_delegation_in_tx(repo, company_uid, delegation_uid, source_task.uid,
-        delegated_by: locked_delegator.uid, delegatee: delegatee_principal_uid,
+        delegated_by: locked_delegator.uid, delegatee: normalized_delegatee,
         scope_description: scope_description)
     end
   end
@@ -786,6 +788,45 @@ defmodule Ankole.WorkHierarchy.TaskStore do
 
   defp validate_delegator_eligible(_repo, %Principal{type: type}, _company_uid) do
     {:error, {:invalid_delegator_type, type}}
+  end
+
+  defp validate_delegatee(_repo, _company_uid, nil), do: {:ok, nil}
+
+  defp validate_delegatee(repo, company_uid, delegatee_principal_uid) when is_binary(delegatee_principal_uid) do
+    with {:ok, normalized_uid} <- normalize_uid(delegatee_principal_uid),
+         {:ok, delegatee} <- Principals.get_principal(repo, normalized_uid),
+         :ok <- validate_delegatee_eligible(repo, delegatee, company_uid) do
+      {:ok, normalized_uid}
+    end
+  end
+
+  defp validate_delegatee(_repo, _company_uid, _other), do: {:error, :invalid_uid}
+
+  defp validate_delegatee_eligible(_repo, %Principal{type: :system}, _company_uid) do
+    {:error, :system_principal_not_allowed_as_delegatee}
+  end
+
+  defp validate_delegatee_eligible(repo, %Principal{type: type} = delegatee, company_uid)
+       when type in [:human, :agent] do
+    with :ok <- validate_active(delegatee),
+         :ok <- validate_delegatee_company_membership(repo, delegatee.uid, company_uid) do
+      :ok
+    end
+  end
+
+  defp validate_delegatee_eligible(_repo, %Principal{type: type}, _company_uid) do
+    {:error, {:invalid_delegatee_type, type}}
+  end
+
+  defp validate_delegatee_company_membership(repo, principal_uid, company_uid) do
+    memberships = repo.all(from m in Membership, where: m.principal_uid == ^principal_uid)
+
+    case memberships do
+      [] -> {:error, :delegatee_not_in_company}
+      [%{company_uid: ^company_uid}] -> :ok
+      [_other] -> {:error, :delegatee_different_company}
+      _corrupt -> {:error, :delegatee_membership_invariant_violation}
+    end
   end
 
   defp validate_scope_description(nil), do: {:error, :scope_description_required}
