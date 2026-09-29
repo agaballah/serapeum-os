@@ -1073,5 +1073,208 @@ defmodule Ankole.WorkHierarchy.TaskStoreResultTest do
       assert result.workflow_run_id == run.id
     end
   end
+
+  # ─── B-12: executor identity normalization integrity ──────────────────────
+
+  describe "create_result — B12 executor identity validation" do
+    setup do
+      human = human_owner_fixture()
+      company = company_fixture(human.uid)
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+
+      {:ok, task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b12-#{System.unique_integer([:positive])}",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      run = ExecutionReferenceFixtures.run_fixture(same_company_agent(company).uid)
+
+      %{company: company, human: human, task: task, run: run}
+    end
+
+    test "B12-T1 a valid executor list is stored normalized", %{company: company, human: human, task: task, run: run} do
+      assert {:ok, result} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t1",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: [human.uid]
+                 })
+               end)
+
+      assert result.executor_principal_uids == [human.uid]
+
+      refreshed = Repo.get(Ankole.WorkHierarchy.TaskResult, result.id)
+      assert refreshed.executor_principal_uids == [human.uid]
+    end
+
+    test "B12-T2 a single malformed executor UID rejects Result creation", %{company: company, task: task, run: run} do
+      assert {:error, {:invalid_executor_uid, "  "}} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t2",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: ["  "]
+                 })
+               end)
+
+      assert Repo.all(Ankole.WorkHierarchy.TaskResult) == []
+    end
+
+    test "B12-T3 a valid executor beside a malformed one rejects the whole Result", %{company: company, human: human, task: task, run: run} do
+      assert {:error, {:invalid_executor_uid, ""}} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t3",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: [human.uid, ""]
+                 })
+               end)
+
+      assert Repo.all(Ankole.WorkHierarchy.TaskResult) == []
+    end
+
+    test "B12-T4 a malformed executor before a valid one also rejects", %{company: company, human: human, task: task, run: run} do
+      assert {:error, {:invalid_executor_uid, :"not-a-uid"}} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t4",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: [:"not-a-uid", human.uid]
+                 })
+               end)
+
+      assert Repo.all(Ankole.WorkHierarchy.TaskResult) == []
+    end
+
+    test "B12-T5 a nil executor list is preserved", %{company: company, task: task, run: run} do
+      assert {:ok, result} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t5",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: nil
+                 })
+               end)
+
+      assert is_nil(result.executor_principal_uids)
+    end
+
+    test "B12-T6 an empty executor list is preserved", %{company: company, task: task, run: run} do
+      assert {:ok, result} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t6",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: []
+                 })
+               end)
+
+      assert result.executor_principal_uids == []
+    end
+
+    test "B12-T7 a valid executor still blocks that executor from reviewing", %{company: company, human: human, task: task, run: run} do
+      {:ok, result} =
+        transact(fn repo ->
+          ResultStore.create_result(repo, company.uid, task.uid, %{
+            result_uid: "b12-t7",
+            workflow_run_id: run.id,
+            executor_principal_uids: [human.uid]
+          })
+        end)
+
+      assert {:error, :reviewer_is_executor} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, human.uid, %{
+                   criteria_text: "Criteria.",
+                   verdict: "APPROVED",
+                   rationale_text: "Rationale."
+                 })
+               end)
+    end
+
+    test "B12-T8 a reviewer plus a malformed executor identity leaves no Result to review", %{company: company, human: human, task: task, run: run} do
+      # The bypass this closes: naming the prospective reviewer as executor beside
+      # a malformed identity used to drop the malformed entry, so the persisted
+      # executor set no longer described the supplied identities. The malformed
+      # identity must now fail the whole Result, leaving nothing to review.
+      assert {:error, {:invalid_executor_uid, 12_345}} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t8",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: [human.uid, 12_345]
+                 })
+               end)
+
+      assert Repo.all(Ankole.WorkHierarchy.TaskResult) == []
+
+      assert {:error, :reviewed_result_not_found} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, "b12-t8", human.uid, %{
+                   criteria_text: "Criteria.",
+                   verdict: "APPROVED",
+                   rationale_text: "Rationale."
+                 })
+               end)
+    end
+
+    test "B12-T9 alternate valid UID forms still normalize", %{company: company, human: human, task: task, run: run} do
+      # PrincipalKey normalizes by trimming and lowercasing only, so these forms
+      # are all valid and must all still reach the stored list.
+      assert {:ok, result} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t9",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: [String.upcase(human.uid), "  #{human.uid}  "]
+                 })
+               end)
+
+      assert result.executor_principal_uids == [human.uid, human.uid]
+    end
+
+    test "B12-T10 executor order and duplicates are preserved", %{company: company, human: human, task: task, run: run} do
+      second = human_owner_fixture()
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, second.uid)
+      end)
+
+      assert {:ok, result} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t10",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: [second.uid, human.uid, second.uid]
+                 })
+               end)
+
+      assert result.executor_principal_uids == [second.uid, human.uid, second.uid]
+    end
+
+    test "B12-T11 a non-list executor value keeps its existing typed error", %{company: company, task: task, run: run} do
+      assert {:error, :invalid_executor_uids} =
+               transact(fn repo ->
+                 ResultStore.create_result(repo, company.uid, task.uid, %{
+                   result_uid: "b12-t11",
+                   workflow_run_id: run.id,
+                   executor_principal_uids: "not-a-list"
+                 })
+               end)
+
+      assert Repo.all(Ankole.WorkHierarchy.TaskResult) == []
+    end
+  end
 end
 

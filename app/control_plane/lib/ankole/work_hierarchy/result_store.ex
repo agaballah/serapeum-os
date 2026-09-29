@@ -38,6 +38,11 @@ defmodule Ankole.WorkHierarchy.ResultStore do
   an Agent that belongs to `company_uid`, and a cited run and call, or job and
   turn, must describe the same execution. Execution rows are read without any
   lock, so this adds no row lock beyond the Task.
+
+  `executor_principal_uids` is normalized as a whole or rejected as a whole.
+  Every supplied executor UID must normalize, because reviewer independence is
+  judged against the stored executor set and a dropped UID would let a real
+  executor review their own work.
   """
   @spec create_result(Ecto.Repo.t(), String.t(), String.t(), map()) ::
           {:ok, TaskResult.t()} | {:error, term()}
@@ -308,18 +313,19 @@ defmodule Ankole.WorkHierarchy.ResultStore do
     end
   end
 
+  # An executor list is normalized as a whole or rejected as a whole. Dropping
+  # one unnormalizable UID would shrink the executor set that reviewer
+  # independence is judged against, so a real executor could disappear from the
+  # Result and then review it. Order and duplicates are preserved.
   defp normalize_executor_uids(nil), do: {:ok, nil}
 
   defp normalize_executor_uids(uids) when is_list(uids) do
-    normalized =
-      Enum.reduce(uids, [], fn uid, acc ->
-        case Principals.normalize_uid(uid) do
-          {:ok, normalized_uid} -> acc ++ [normalized_uid]
-          {:error, _} -> acc
-        end
-      end)
-
-    {:ok, normalized}
+    Enum.reduce_while(uids, {:ok, []}, fn uid, {:ok, acc} ->
+      case Principals.normalize_uid(uid) do
+        {:ok, normalized_uid} -> {:cont, {:ok, acc ++ [normalized_uid]}}
+        {:error, :invalid_uid} -> {:halt, {:error, {:invalid_executor_uid, uid}}}
+      end
+    end)
   end
 
   defp normalize_executor_uids(_uids), do: {:error, :invalid_executor_uids}
