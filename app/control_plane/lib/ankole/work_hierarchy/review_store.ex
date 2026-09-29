@@ -26,6 +26,11 @@ defmodule Ankole.WorkHierarchy.ReviewStore do
   `company_uid` is authoritative. The Task row is locked FOR UPDATE. The
   reviewed Result must be non-nil, must belong to the Task, and the reviewer
   Principal MUST NOT appear in the Result's `executor_principal_uids`.
+
+  The reviewer Principal must exist, be active, and belong to `company_uid`.
+  Status is judged on the reviewer row already locked by this path, so the
+  check adds no lock of its own. A Principal type may review; this layer
+  performs no authorization beyond structural integrity.
   """
   @spec create_review(
           Ecto.Repo.t(),
@@ -41,7 +46,8 @@ defmodule Ankole.WorkHierarchy.ReviewStore do
          :ok <- validate_result_uid_present(result_uid),
          {:ok, result} <- fetch_result_for_review(repo, task_uid, result_uid),
          {:ok, normalized_reviewer} <- normalize_reviewer_uid(reviewer_principal_uid),
-         {:ok, _reviewer} <- fetch_reviewer_for_update(repo, normalized_reviewer),
+         {:ok, reviewer} <- fetch_reviewer_for_update(repo, normalized_reviewer),
+         :ok <- validate_reviewer_active(reviewer),
          :ok <- validate_reviewer_in_company(repo, normalized_reviewer, company_uid),
          :ok <- validate_reviewer_independence(result, normalized_reviewer),
          attrs <- Map.put(attrs, :reviewed_result_uid, result.result_uid),
@@ -163,6 +169,12 @@ defmodule Ankole.WorkHierarchy.ReviewStore do
       nil -> {:error, :reviewer_not_found}
     end
   end
+
+  # The reviewer row is already locked by fetch_reviewer_for_update/2, so status
+  # is judged on that same read. Any status other than active is refused, which
+  # keeps the rule correct if another status is added later.
+  defp validate_reviewer_active(%Principal{status: :active}), do: :ok
+  defp validate_reviewer_active(%Principal{status: status}), do: {:error, {:reviewer_not_active, status}}
 
   defp validate_reviewer_in_company(repo, reviewer_uid, company_uid) do
     case repo.one(

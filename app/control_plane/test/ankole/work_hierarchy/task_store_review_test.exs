@@ -3,6 +3,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
 
   alias Ankole.Company
   alias Ankole.ExecutionReferenceFixtures
+  alias Ankole.Principals.Principal
   alias Ankole.PrincipalsFixtures
   alias Ankole.WorkHierarchy.ResultStore
   alias Ankole.WorkHierarchy.ReviewRecord
@@ -604,6 +605,183 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
 
       reviews = ReviewStore.list_result_reviews(Repo, result.result_uid)
       assert length(reviews) == 1
+    end
+  end
+
+  # ─── B-13: reviewer must be active ─────────────────────────────────────────
+
+  describe "create_review — B13 reviewer active status" do
+    setup do
+      human = human_owner_fixture()
+      company = company_fixture(human.uid)
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+
+      {:ok, task} = transact(fn repo ->
+        Ankole.WorkHierarchy.TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b13-#{System.unique_integer([:positive])}",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      run_id = execution_run_id(company)
+
+      {:ok, result} = transact(fn repo ->
+        ResultStore.create_result(repo, company.uid, task.uid, %{
+          result_uid: "b13-result-#{System.unique_integer([:positive])}",
+          workflow_run_id: run_id
+        })
+      end)
+
+      %{company: company, human: human, task: task, result: result, run_id: run_id}
+    end
+
+    defp active_reviewer_fixture(company) do
+      reviewer = reviewer_fixture()
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, reviewer.uid)
+      end)
+
+      reviewer
+    end
+
+    defp set_reviewer_status(reviewer, status) do
+      # Reload first: a changeset built from the fixture struct would report no
+      # change once the stored status already matched the requested one.
+      current = Repo.get!(Principal, reviewer.uid)
+
+      assert {:ok, _principal} =
+               current
+               |> Principal.changeset(%{status: status})
+               |> Repo.update()
+    end
+
+    defp review_attrs do
+      %{criteria_text: "Criteria.", verdict: "APPROVED", rationale_text: "Rationale."}
+    end
+
+    test "B13-T1 an active same-Company reviewer succeeds", %{company: company, task: task, result: result} do
+      reviewer = active_reviewer_fixture(company)
+
+      assert {:ok, review} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, reviewer.uid, review_attrs())
+               end)
+
+      assert review.reviewer_principal_uid == reviewer.uid
+    end
+
+    test "B13-T2 a disabled reviewer is rejected", %{company: company, task: task, result: result} do
+      reviewer = active_reviewer_fixture(company)
+      set_reviewer_status(reviewer, :disabled)
+
+      assert {:error, {:reviewer_not_active, :disabled}} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, reviewer.uid, review_attrs())
+               end)
+    end
+
+    test "B13-T3 a rejected inactive reviewer persists no ReviewRecord and no event", %{company: company, task: task, result: result} do
+      reviewer = active_reviewer_fixture(company)
+      set_reviewer_status(reviewer, :disabled)
+
+      assert {:error, {:reviewer_not_active, :disabled}} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, reviewer.uid, review_attrs())
+               end)
+
+      assert Repo.all(Ankole.WorkHierarchy.ReviewRecord) == []
+      assert Repo.all(Ankole.WorkHierarchy.ReviewEvent) == []
+    end
+
+    test "B13-T4 a reviewer outside the Company is still rejected", %{company: company, task: task, result: result} do
+      outsider = reviewer_fixture()
+
+      assert {:error, :reviewer_not_in_company} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, outsider.uid, review_attrs())
+               end)
+
+      assert Repo.all(Ankole.WorkHierarchy.ReviewRecord) == []
+    end
+
+    test "B13-T5 an executor may still not review", %{company: company, human: human, task: task, run_id: run_id} do
+      {:ok, result} =
+        transact(fn repo ->
+          ResultStore.create_result(repo, company.uid, task.uid, %{
+            result_uid: "b13-executor-#{System.unique_integer([:positive])}",
+            workflow_run_id: run_id,
+            executor_principal_uids: [human.uid]
+          })
+        end)
+
+      assert {:error, :reviewer_is_executor} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, human.uid, review_attrs())
+               end)
+    end
+
+    test "B13-T6 a nonexistent reviewer still returns reviewer_not_found", %{company: company, task: task, result: result} do
+      assert {:error, :reviewer_not_found} =
+               transact(fn repo ->
+                 ReviewStore.create_review(
+                   repo,
+                   company.uid,
+                   task.uid,
+                   result.result_uid,
+                   "human-does-not-exist-b13",
+                   review_attrs()
+                 )
+               end)
+
+      assert Repo.all(Ankole.WorkHierarchy.ReviewRecord) == []
+    end
+
+    test "B13-T7 the refusal reports the actual status and is not hardcoded to :disabled", %{company: company, task: task, result: result} do
+      reviewer = active_reviewer_fixture(company)
+
+      # principals.status is an Ecto.Enum whose only non-active value is
+      # :disabled, so that is the only case reachable today. The store guards on
+      # :active and reports whatever status it was given, so a future status
+      # needs no change here. The assertion pins that the error carries the
+      # status rather than a fixed atom.
+      set_reviewer_status(reviewer, :disabled)
+
+      assert {:error, {:reviewer_not_active, status}} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, reviewer.uid, review_attrs())
+               end)
+
+      assert status == :disabled
+      assert Repo.get(Principal, reviewer.uid).status == :disabled
+    end
+
+    test "B13-T8 a reactivated reviewer can review again", %{company: company, task: task, result: result} do
+      reviewer = active_reviewer_fixture(company)
+      set_reviewer_status(reviewer, :disabled)
+
+      assert {:error, {:reviewer_not_active, :disabled}} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, reviewer.uid, review_attrs())
+               end)
+
+      set_reviewer_status(reviewer, :active)
+
+      assert {:ok, review} =
+               transact(fn repo ->
+                 ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, reviewer.uid, review_attrs())
+               end)
+
+      assert review.reviewer_principal_uid == reviewer.uid
+      assert length(Repo.all(Ankole.WorkHierarchy.ReviewEvent)) == 1
     end
   end
 end
