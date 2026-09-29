@@ -6,6 +6,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewConcurrencyTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.Company
+  alias Ankole.ExecutionReferenceFixtures
   alias Ankole.PrincipalsFixtures
   alias Ankole.WorkHierarchy.TaskStore
   alias Ankole.WorkHierarchy.ResultStore
@@ -13,6 +14,18 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewConcurrencyTest do
   alias Ankole.WorkHierarchy.ReviewRecord
 
   defp transact(fun), do: Repo.transact(fn repo -> fun.(repo) end)
+
+  # A Result must cite a real execution record owned by an Agent of the Task's
+  # Company, so every Result built for a concurrency test needs one.
+  defp execution_run_id(company) do
+    %{principal: agent} = PrincipalsFixtures.agent_fixture()
+
+    {:ok, _membership} = transact(fn repo ->
+      Ankole.Company.MembershipStore.add_member(repo, company.uid, agent.uid)
+    end)
+
+    ExecutionReferenceFixtures.run_fixture(agent.uid).id
+  end
 
   defp company_fixture(owner_uid, attrs \\ %{}) do
     suffix = System.unique_integer([:positive])
@@ -73,6 +86,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewConcurrencyTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "task-concurrent-review-result-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-review-001"
         })
       end)
@@ -144,6 +158,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewConcurrencyTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "task-concurrent-inv-result-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-inv-001"
         })
       end)

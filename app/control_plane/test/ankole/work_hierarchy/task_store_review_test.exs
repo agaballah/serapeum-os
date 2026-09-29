@@ -2,6 +2,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.Company
+  alias Ankole.ExecutionReferenceFixtures
   alias Ankole.PrincipalsFixtures
   alias Ankole.WorkHierarchy.ResultStore
   alias Ankole.WorkHierarchy.ReviewRecord
@@ -13,6 +14,19 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
   """
 
   defp transact(fun), do: Repo.transact(fn repo -> fun.(repo) end)
+
+  # A Result must cite a real execution record owned by an Agent of the Task's
+  # Company, so every Result built for a review test needs one.
+  defp execution_run_id(company) do
+    %{principal: agent} = PrincipalsFixtures.agent_fixture()
+
+    {:ok, _membership} = transact(fn repo ->
+      Ankole.Company.MembershipStore.add_member(repo, company.uid, agent.uid)
+    end)
+
+    ExecutionReferenceFixtures.run_fixture(agent.uid).id
+  end
+
 
   defp company_fixture(owner_uid, attrs \\ %{}) do
     suffix = System.unique_integer([:positive])
@@ -66,6 +80,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "result-review-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001",
           executor_principal_uids: [human.uid]
         })
@@ -178,6 +193,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result_a} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task_a.uid, %{
           result_uid: "result-mismatch-a",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001"
         })
       end)
@@ -243,6 +259,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "result-indep-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001",
           executor_principal_uids: [human.uid]
         })
@@ -284,6 +301,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "result-indep-ok-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001",
           executor_principal_uids: [human.uid]
         })
@@ -327,6 +345,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "result-verdict-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001"
         })
       end)
@@ -368,6 +387,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result_b} = transact(fn repo ->
         ResultStore.create_result(repo, company_b.uid, task_b.uid, %{
           result_uid: "result-cross-review",
+          workflow_run_id: execution_run_id(company_b),
           execution_attempt_ref: "attempt-001"
         })
       end)
@@ -410,6 +430,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "result-inv-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001"
         })
       end)
@@ -464,6 +485,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "result-dbl-inv-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001"
         })
       end)
@@ -527,6 +549,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "result-ltr-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001"
         })
       end)
@@ -568,6 +591,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       {:ok, result} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "result-lrr-001",
+          workflow_run_id: execution_run_id(company),
           execution_attempt_ref: "attempt-001"
         })
       end)

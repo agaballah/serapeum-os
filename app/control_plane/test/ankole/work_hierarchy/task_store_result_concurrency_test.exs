@@ -6,6 +6,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreResultConcurrencyTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.Company
+  alias Ankole.ExecutionReferenceFixtures
   alias Ankole.PrincipalsFixtures
   alias Ankole.WorkHierarchy.TaskStore
   alias Ankole.WorkHierarchy.ResultStore
@@ -13,6 +14,18 @@ defmodule Ankole.WorkHierarchy.TaskStoreResultConcurrencyTest do
   alias Ankole.WorkHierarchy.ReviewRecord
 
   defp transact(fun), do: Repo.transact(fn repo -> fun.(repo) end)
+
+  # A Result must cite a real execution record owned by an Agent of the Task's
+  # Company, so every Result built for a concurrency test needs one.
+  defp execution_run_id(company) do
+    %{principal: agent} = PrincipalsFixtures.agent_fixture()
+
+    {:ok, _membership} = transact(fn repo ->
+      Ankole.Company.MembershipStore.add_member(repo, company.uid, agent.uid)
+    end)
+
+    ExecutionReferenceFixtures.run_fixture(agent.uid).id
+  end
 
   defp company_fixture(owner_uid, attrs \\ %{}) do
     suffix = System.unique_integer([:positive])
@@ -67,9 +80,12 @@ defmodule Ankole.WorkHierarchy.TaskStoreResultConcurrencyTest do
         })
       end)
 
+      run_id = execution_run_id(company)
+
       {:ok, result_a} = transact(fn repo ->
         ResultStore.create_result(repo, company.uid, task.uid, %{
           result_uid: "task-concurrent-result-a-001",
+          workflow_run_id: run_id,
           execution_attempt_ref: "attempt-a-001"
         })
       end)
@@ -91,6 +107,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreResultConcurrencyTest do
           Repo.transact(fn repo ->
             ResultStore.create_result(repo, company.uid, task.uid, %{
               result_uid: "task-concurrent-result-b-001",
+              workflow_run_id: run_id,
               execution_attempt_ref: "attempt-b-001"
             })
           end)
@@ -103,6 +120,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreResultConcurrencyTest do
           Repo.transact(fn repo ->
             ResultStore.create_result(repo, company.uid, task.uid, %{
               result_uid: "task-concurrent-result-c-001",
+              workflow_run_id: run_id,
               execution_attempt_ref: "attempt-c-001"
             })
           end)
@@ -151,6 +169,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreResultConcurrencyTest do
         })
       end)
 
+      run_id = execution_run_id(company)
       parent_pid = self()
 
       result_fut =
@@ -160,6 +179,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreResultConcurrencyTest do
           Repo.transact(fn repo ->
             ResultStore.create_result(repo, company.uid, task.uid, %{
               result_uid: "task-concurrent-race-result-001",
+              workflow_run_id: run_id,
               execution_attempt_ref: "attempt-race-001"
             })
           end)

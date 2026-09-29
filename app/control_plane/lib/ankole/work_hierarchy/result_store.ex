@@ -10,11 +10,17 @@ defmodule Ankole.WorkHierarchy.ResultStore do
 
   import Ecto.Query
 
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Schemas.Turn
+  alias Ankole.Company.MembershipStore
   alias Ankole.Principals
+  alias Ankole.Principals.Principal
   alias Ankole.WorkHierarchy.Task
   alias Ankole.WorkHierarchy.TaskResult
   alias Ankole.WorkHierarchy.ReviewRecord
   alias Ankole.WorkHierarchy.ReviewEvent
+  alias Ankole.Workflow.Schemas.AgentCall
+  alias Ankole.Workflow.Schemas.Run
 
   @doc """
   Creates a durable Task result scoped to the given Company.
@@ -24,6 +30,14 @@ defmodule Ankole.WorkHierarchy.ResultStore do
   result that already carries a non-invalidated review, that review is
   invalidated atomically within the same transaction and a `review_events`
   `invalidated` row is inserted.
+
+  The Result must cite at least one real execution record: a workflow run, a
+  workflow agent call, a background agent job, or a background agent job turn.
+  `execution_attempt_ref` is supplemental opaque metadata and never satisfies
+  that requirement on its own. Every cited record must exist, must be owned by
+  an Agent that belongs to `company_uid`, and a cited run and call, or job and
+  turn, must describe the same execution. Execution rows are read without any
+  lock, so this adds no row lock beyond the Task.
   """
   @spec create_result(Ecto.Repo.t(), String.t(), String.t(), map()) ::
           {:ok, TaskResult.t()} | {:error, term()}
@@ -35,9 +49,10 @@ defmodule Ankole.WorkHierarchy.ResultStore do
 
     with :ok <- validate_company_exists(repo, company_uid),
          {:ok, _task} <- fetch_task_for_update(repo, company_uid, task_uid),
-         :ok <- validate_execution_reference(attrs),
+         {:ok, normalized_refs} <- normalize_execution_references(attrs),
+         :ok <- validate_execution_references(repo, company_uid, normalized_refs),
          {:ok, normalized_executors} <- normalize_executor_uids(attrs[:executor_principal_uids]),
-         attrs <- Map.put(attrs, :executor_principal_uids, normalized_executors),
+         attrs <- attrs |> Map.merge(normalized_refs) |> Map.put(:executor_principal_uids, normalized_executors),
          {:ok, result} <- insert_result(repo, attrs),
          :ok <- invalidate_prior_review_if_superseded(repo, task_uid, result) do
       {:ok, result}
@@ -120,25 +135,178 @@ defmodule Ankole.WorkHierarchy.ResultStore do
     end
   end
 
-  defp validate_execution_reference(attrs) do
-    refs = [
-      Map.get(attrs, :workflow_run_id),
-      Map.get(attrs, :workflow_agent_call_id),
-      Map.get(attrs, :background_agent_job_id),
-      Map.get(attrs, :background_agent_job_turn_id),
-      Map.get(attrs, :execution_attempt_ref)
-    ]
+  # ─── Execution reference validation ───────────────────────────────────────
 
-    if Enum.all?(refs, &is_nil_or_blank/1) do
-      {:error, :execution_reference_required}
-    else
+  @real_reference_fields [
+    :workflow_run_id,
+    :workflow_agent_call_id,
+    :background_agent_job_id,
+    :background_agent_job_turn_id
+  ]
+
+  # Every real reference is normalized once, to the type its column already
+  # stores: an integer id for the three bigint columns, a UUID for the turn.
+  # A value that cannot be read as that type is rejected rather than dropped, so
+  # a malformed reference never degrades into a missing one.
+  defp normalize_execution_references(attrs) do
+    Enum.reduce_while(@real_reference_fields, {:ok, %{}}, fn field, {:ok, acc} ->
+      case normalize_reference_id(Map.get(attrs, field), reference_kind(field)) do
+        {:ok, id} when not is_nil(id) ->
+          {:cont, {:ok, Map.put(acc, field, id)}}
+
+        {:ok, nil} ->
+          {:cont, {:ok, acc}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  defp reference_kind(:background_agent_job_turn_id), do: :uuid
+  defp reference_kind(_field), do: :integer
+
+  defp normalize_reference_id(nil, _kind), do: {:ok, nil}
+
+  defp normalize_reference_id(value, :integer) when is_integer(value) do
+    if value > 0, do: {:ok, value}, else: {:error, {:invalid_execution_reference, value}}
+  end
+
+  defp normalize_reference_id(value, :integer) when is_binary(value) do
+    case Integer.parse(value) do
+      {id, ""} when id > 0 -> {:ok, id}
+      _other -> {:error, {:invalid_execution_reference, value}}
+    end
+  end
+
+  defp normalize_reference_id(value, :uuid) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, {:invalid_execution_reference, value}}
+    end
+  end
+
+  defp normalize_reference_id(value, _kind), do: {:error, {:invalid_execution_reference, value}}
+
+  defp validate_execution_references(repo, company_uid, refs) do
+    with :ok <- require_real_execution_reference(refs),
+         {:ok, run} <- fetch_workflow_run(repo, refs[:workflow_run_id]),
+         {:ok, call} <- fetch_workflow_agent_call(repo, refs[:workflow_agent_call_id]),
+         :ok <- validate_workflow_pair(run, call),
+         {:ok, job} <- fetch_background_job(repo, refs[:background_agent_job_id]),
+         {:ok, turn} <- fetch_background_job_turn(repo, refs[:background_agent_job_turn_id]),
+         :ok <- validate_background_pair(job, turn),
+         {:ok, turn_job} <- fetch_turn_job(repo, turn),
+         :ok <- validate_execution_owner(repo, company_uid, :workflow_run_id, owner_of_run(run)),
+         :ok <- validate_execution_owner(repo, company_uid, :workflow_agent_call_id, owner_of_call(call)),
+         :ok <- validate_execution_owner(repo, company_uid, :background_agent_job_id, owner_of_job(job)),
+         :ok <-
+           validate_execution_owner(repo, company_uid, :background_agent_job_turn_id, owner_of_job(turn_job)) do
       :ok
     end
   end
 
-  defp is_nil_or_blank(nil), do: true
-  defp is_nil_or_blank(val) when is_binary(val), do: String.trim(val) == ""
-  defp is_nil_or_blank(_val), do: false
+  defp require_real_execution_reference(refs) do
+    if Enum.any?(@real_reference_fields, &(not is_nil(Map.get(refs, &1)))) do
+      :ok
+    else
+      {:error, :execution_reference_required}
+    end
+  end
+
+  # Execution rows are read without a lock. The Task row is already held FOR
+  # UPDATE by the caller, and locking a second row in another subsystem would
+  # order locks across the work hierarchy and the execution subsystems.
+
+  defp fetch_workflow_run(_repo, nil), do: {:ok, nil}
+
+  defp fetch_workflow_run(repo, run_id) do
+    case repo.get(Run, run_id) do
+      %Run{} = run -> {:ok, run}
+      nil -> {:error, {:execution_reference_not_found, :workflow_run_id}}
+    end
+  end
+
+  defp fetch_workflow_agent_call(_repo, nil), do: {:ok, nil}
+
+  defp fetch_workflow_agent_call(repo, call_id) do
+    case repo.get(AgentCall, call_id) do
+      %AgentCall{} = call -> {:ok, call}
+      nil -> {:error, {:execution_reference_not_found, :workflow_agent_call_id}}
+    end
+  end
+
+  defp fetch_background_job(_repo, nil), do: {:ok, nil}
+
+  defp fetch_background_job(repo, job_id) do
+    case repo.get(Job, job_id) do
+      %Job{} = job -> {:ok, job}
+      nil -> {:error, {:execution_reference_not_found, :background_agent_job_id}}
+    end
+  end
+
+  defp fetch_background_job_turn(_repo, nil), do: {:ok, nil}
+
+  defp fetch_background_job_turn(repo, turn_id) do
+    case repo.get(Turn, turn_id) do
+      %Turn{} = turn -> {:ok, turn}
+      nil -> {:error, {:execution_reference_not_found, :background_agent_job_turn_id}}
+    end
+  end
+
+  defp owner_of_run(nil), do: nil
+  defp owner_of_run(%Run{agent_uid: agent_uid}), do: agent_uid
+
+  defp owner_of_call(nil), do: nil
+  defp owner_of_call(%AgentCall{agent_uid: agent_uid}), do: agent_uid
+
+  defp owner_of_job(nil), do: nil
+  defp owner_of_job(%Job{agent_uid: agent_uid}), do: agent_uid
+
+  # A turn names its owning job, so a cited turn is owned by the Agent that runs
+  # that job. The job must exist, which the turn's own foreign key already
+  # guarantees, but reading it keeps the owner an explicit checked row.
+  defp fetch_turn_job(_repo, nil), do: {:ok, nil}
+
+  defp fetch_turn_job(repo, %Turn{job_id: job_id}) do
+    case repo.get(Job, job_id) do
+      %Job{} = job -> {:ok, job}
+      nil -> {:error, {:execution_reference_not_found, :background_agent_job_turn_id}}
+    end
+  end
+
+  defp validate_workflow_pair(nil, _call), do: :ok
+  defp validate_workflow_pair(_run, nil), do: :ok
+
+  defp validate_workflow_pair(%Run{id: run_id}, %AgentCall{run_id: call_run_id}) do
+    if run_id == call_run_id, do: :ok, else: {:error, :workflow_agent_call_run_mismatch}
+  end
+
+  defp validate_background_pair(nil, _turn), do: :ok
+  defp validate_background_pair(_job, nil), do: :ok
+
+  defp validate_background_pair(%Job{id: job_id}, %Turn{job_id: turn_job_id}) do
+    if job_id == turn_job_id, do: :ok, else: {:error, :background_agent_job_turn_job_mismatch}
+  end
+
+  defp validate_execution_owner(_repo, _company_uid, _field, nil), do: :ok
+
+  defp validate_execution_owner(repo, company_uid, field, agent_uid) do
+    case Principals.get_principal(repo, agent_uid) do
+      {:ok, %Principal{type: :agent} = principal} ->
+        if MembershipStore.member?(repo, company_uid, principal.uid) do
+          :ok
+        else
+          {:error, {:execution_reference_wrong_company, field}}
+        end
+
+      {:ok, %Principal{type: type}} ->
+        {:error, {:invalid_execution_owner_type, field, type}}
+
+      {:error, :not_found} ->
+        {:error, {:execution_reference_owner_not_found, field}}
+    end
+  end
 
   defp normalize_executor_uids(nil), do: {:ok, nil}
 
