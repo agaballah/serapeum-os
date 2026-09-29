@@ -317,6 +317,7 @@ defmodule Ankole.WorkHierarchy.TaskStore do
          :ok <- validate_not_terminal(from_status),
          :ok <- validate_transition_allowed(from_status, to_status),
          :ok <- validate_transition_guard(from_status, to_status, task, opts, repo, company_uid),
+         :ok <- validate_changer_if_present(opts[:changed_by_uid], repo, company_uid),
          {:ok, task} <- update_task_status(repo, task, to_status, opts),
          {:ok, _event} <- insert_lifecycle_event(repo, task, from_status, to_status, opts) do
       {:ok, task}
@@ -705,13 +706,28 @@ defmodule Ankole.WorkHierarchy.TaskStore do
 
   defp validate_changer(repo, changed_by_uid, company_uid) do
     with {:ok, normalized_uid} <- normalize_uid(changed_by_uid),
-          {:ok, principal} <- fetch_principal_for_update(repo, normalized_uid),
-          :ok <- validate_active(principal),
-          :ok <- validate_member(repo, principal.uid, company_uid) do
+         {:ok, principal} <- fetch_principal_for_update(repo, normalized_uid),
+         :ok <- validate_active(principal),
+         :ok <- validate_member(repo, principal.uid, company_uid) do
       {:ok, principal}
     else
       {:error, :not_found} -> {:error, :changer_not_found}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Allow lifecycle transitions that do not name a changer (no changed_by_uid in
+  # opts) to continue through. When a changer is supplied, reuse validate_changer
+  # so normalization, existence, active status, and Company membership are all
+  # enforced in one shot on the already-locked Principal row. Always returns :ok
+  # on success; the Principal struct returned by validate_changer is discarded so
+  # it cannot leak into the with-chain result binding.
+  defp validate_changer_if_present(nil, _repo, _company_uid), do: :ok
+
+  defp validate_changer_if_present(changed_by_uid, repo, company_uid) do
+    case validate_changer(repo, changed_by_uid, company_uid) do
+      {:ok, _principal} -> :ok
+      other -> other
     end
   end
 

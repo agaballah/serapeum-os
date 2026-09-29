@@ -551,4 +551,195 @@ defmodule Ankole.WorkHierarchy.TaskStoreLifecycleTest do
       assert events == []
     end
   end
+
+  # ─── B-14: lifecycle transition actor validation ───────────────────────────
+
+  describe "transition_task — B14 changed_by_uid validation" do
+    setup do
+      human = human_owner_fixture()
+      company = company_fixture(human.uid)
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+
+      {:ok, task} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b14-#{System.unique_integer([:positive])}",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      %{company: company, human: human, task: task}
+    end
+
+    defp active_same_company_agent(company) do
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, agent.uid)
+      end)
+
+      agent
+    end
+
+    defp disabled_same_company_agent(company) do
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, agent.uid)
+      end)
+
+      assert {:ok, _principal} =
+               agent
+               |> Ankole.Principals.Principal.changeset(%{status: :disabled})
+               |> Repo.update()
+
+      agent
+    end
+
+    defp other_company_agent do
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+      agent
+    end
+
+    defp do_transition(repo, company_uid, task_uid, to_status, changed_by_uid) do
+      TaskStore.transition_task(repo, company_uid, task_uid, to_status, %{
+        changed_by_uid: changed_by_uid
+      })
+    end
+
+    # ─── B14-T1 ───
+
+    test "B14-T1 active same-Company changer allows lifecycle transition", %{company: company, task: task, human: human} do
+      assert {:ok, updated} = do_transition(Repo, company.uid, task.uid, "READY", human.uid)
+      assert updated.status == "READY"
+    end
+
+    # ─── B14-T2 ───
+
+    test "B14-T2 nonexistent changer rejects transition", %{company: company, task: task} do
+      assert {:error, :changer_not_found} =
+               do_transition(Repo, company.uid, task.uid, "READY", "human-nonexistent-b14")
+    end
+
+    # ─── B14-T3 ───
+
+    test "B14-T3 disabled changer rejects transition", %{company: company, task: task} do
+      agent = disabled_same_company_agent(company)
+
+      assert {:error, {:creator_not_active, :disabled}} =
+               do_transition(Repo, company.uid, task.uid, "READY", agent.uid)
+    end
+
+    # ─── B14-T4 ───
+
+    test "B14-T4 cross-Company changer rejects transition", %{company: company, task: task} do
+      agent = other_company_agent()
+
+      assert {:error, :creator_not_member} =
+               do_transition(Repo, company.uid, task.uid, "READY", agent.uid)
+    end
+
+    # ─── B14-T5 ───
+
+    test "B14-T5 malformed changer UID rejects transition", %{company: company, task: task} do
+      assert {:error, :invalid_uid} =
+               do_transition(Repo, company.uid, task.uid, "READY", "  ")
+    end
+
+    # ─── B14-T6 ───
+
+    test "B14-T6 rejected actor validation leaves Task state/version unchanged", %{company: company, task: task} do
+      agent = disabled_same_company_agent(company)
+
+      before_task = Repo.get!(Ankole.WorkHierarchy.Task, task.id)
+      assert before_task.status == "PROPOSED"
+      before_version = before_task.version
+
+      assert {:error, {:creator_not_active, :disabled}} =
+               do_transition(Repo, company.uid, task.uid, "READY", agent.uid)
+
+      after_task = Repo.get!(Ankole.WorkHierarchy.Task, task.id)
+      assert after_task.status == "PROPOSED"
+      assert after_task.version == before_version
+    end
+
+    # ─── B14-T7 ───
+
+    test "B14-T7 rejected actor validation creates no lifecycle event", %{company: company, task: task} do
+      agent = disabled_same_company_agent(company)
+
+      before_events = Repo.all(from e in TaskLifecycleEvent, where: e.task_uid == ^task.uid)
+      assert before_events == []
+
+      assert {:error, {:creator_not_active, :disabled}} =
+               do_transition(Repo, company.uid, task.uid, "READY", agent.uid)
+
+      after_events = Repo.all(from e in TaskLifecycleEvent, where: e.task_uid == ^task.uid)
+      assert after_events == []
+    end
+
+    # ─── B14-T8 ───
+
+    test "B14-T8 existing valid lifecycle transitions remain green", %{company: company, task: task, human: human} do
+      # Full lifecycle: PROPOSED -> READY -> ASSIGNED -> IN_PROGRESS -> COMPLETED
+      agent = active_same_company_agent(company)
+
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "READY", human.uid)
+      {:ok, _} = TaskStore.assign_agent(Repo, company.uid, task.uid, agent.uid, human.uid)
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "IN_PROGRESS", human.uid)
+      {:ok, completed} = do_transition(Repo, company.uid, task.uid, "COMPLETED", human.uid)
+
+      assert completed.status == "COMPLETED"
+    end
+
+    # ─── B14-T9 ───
+
+    test "B14-T9 terminal transition behavior remains unchanged", %{company: company, human: human, task: task} do
+      agent = active_same_company_agent(company)
+
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "READY", human.uid)
+      {:ok, _} = TaskStore.assign_agent(Repo, company.uid, task.uid, agent.uid, human.uid)
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "IN_PROGRESS", human.uid)
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "COMPLETED", human.uid)
+
+      # Terminal state cannot transition
+      assert {:error, {:terminal_state, "COMPLETED"}} =
+               do_transition(Repo, company.uid, task.uid, "IN_PROGRESS", human.uid)
+
+      # Task remains COMPLETED
+      task_after = Repo.get!(Ankole.WorkHierarchy.Task, task.id)
+      assert task_after.status == "COMPLETED"
+    end
+
+    # ─── B14-T10 ───
+
+    test "B14-T10 cancellation-specific changer requirement preserved", %{company: company, task: task, human: human} do
+      # cancel_task requires changed_by_uid (guard enforces it)
+      assert {:error, :cancelled_by_uid_required} =
+               TaskStore.cancel_task(Repo, company.uid, task.uid, nil, "reason")
+
+      # fail_task requires failure_reason but also uses changed_by_uid
+      {:ok, task2} = transact(fn repo ->
+        TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b14-#{System.unique_integer([:positive])}",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      assert {:error, :failure_reason_required} =
+               TaskStore.fail_task(Repo, company.uid, task2.uid, human.uid, nil)
+    end
+  end
 end
