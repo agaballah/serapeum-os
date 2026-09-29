@@ -39,13 +39,121 @@ defmodule Ankole.W3.RiskClassifierTest do
   end
 
   describe "classify/3" do
+    # ─── B-2 / B-3 required tests ──────────────────────────────────────────
+
+    test "B2-T1 create_goal → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_goal")
+    end
+
+    test "B2-T2 create_mission → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_mission")
+    end
+
+    test "B2-T3 create_revision → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_revision")
+    end
+
+    test "B2-T4 create_review → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_review")
+    end
+
+    test "B2-T5 transition to READY → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", nil, %{to_status: "READY"})
+    end
+
+    test "B2-T6 transition to ASSIGNED → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", nil, %{to_status: "ASSIGNED"})
+    end
+
+    test "B2-T7 transition to IN_PROGRESS → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", nil, %{to_status: "IN_PROGRESS"})
+    end
+
+    test "B2-T8 transition to WAITING → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", nil, %{to_status: "WAITING"})
+    end
+
+    test "B2-T9 transition to REVIEW → CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", nil, %{to_status: "REVIEW"})
+    end
+
+    test "B2-T10 transition to COMPLETED → HIGH-IMPACT" do
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("transition_task", nil, %{to_status: "COMPLETED"})
+    end
+
+    test "B2-T11 transition to CANCELLED → HIGH-IMPACT" do
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("transition_task", nil, %{to_status: "CANCELLED"})
+    end
+
+    test "B2-T12 transition to FAILED → HIGH-IMPACT" do
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("transition_task", nil, %{to_status: "FAILED"})
+    end
+
+    test "B2-T13 BLOCKED is rejected (no longer in catalog)" do
+      assert {:error, :unknown_action} = RiskClassifier.classify("transition_task", nil, %{to_status: "BLOCKED"})
+    end
+
+    test "B2-T14 PROPOSED as transition target is rejected (not a target state)" do
+      assert {:error, :unknown_action} =
+               RiskClassifier.classify("transition_task", nil, %{to_status: "PROPOSED"})
+    end
+
+    test "B2-T15 arbitrary unknown status is rejected as unknown action" do
+      assert {:error, :unknown_action} =
+               RiskClassifier.classify("transition_task", nil, %{to_status: "NONEXISTENT"})
+    end
+
+    test "B2-T16 transition classification is driven by context target status, not resource value" do
+      # Different resources with the same context must produce the same result.
+      ctx = %{to_status: "COMPLETED"}
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("transition_task", "any-resource", ctx)
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("transition_task", nil, ctx)
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("transition_task", "", ctx)
+    end
+
+    test "B2-T17 existing create_task classification remains CONTROLLED" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_task")
+    end
+
+    test "B2-T18 existing assign_agent remains HIGH-IMPACT" do
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("assign_agent")
+    end
+
+    test "B2-T19 existing cancel_task remains HIGH-IMPACT" do
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("cancel_task")
+    end
+
+    test "B2-T20 existing fail_task remains HIGH-IMPACT" do
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("fail_task")
+    end
+
+    test "B2-T21 existing set_child_policy remains HIGH-IMPACT" do
+      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("set_child_policy")
+    end
+
+    test "B2-T22 existing CONTROLLED actions remain unchanged" do
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_result")
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("invalidate_review")
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("set_dependency")
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("remove_dependency")
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_child_task")
+      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_delegation")
+    end
+
+    test "B2-T23 existing unknown-action fail-closed behavior remains green" do
+      assert {:error, :unknown_action} = RiskClassifier.classify("magic_spell")
+      assert {:error, :unknown_action} = RiskClassifier.classify("")
+      assert {:error, :unknown_action} = RiskClassifier.classify(nil)
+      assert {:error, :unknown_action} = RiskClassifier.classify("transition_task", nil, %{})
+    end
+
+    # ─── Regression / boundary ──────────────────────────────────────────────
+
     test "classifies a known ROUTINE action" do
       assert {:ok, "ROUTINE"} = RiskClassifier.classify("list_company_tasks")
     end
 
-    test "classifies a known CONTROLLED action" do
-      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_task")
-      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", "PROPOSED")
+    test "classifies a known CONTROLLED action (non-transition)" do
       assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_result")
     end
 
@@ -56,33 +164,16 @@ defmodule Ankole.W3.RiskClassifierTest do
       assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("set_child_policy")
     end
 
-    test "classifies a PROHIBITED action" do
-      # No actions are currently cataloged as PROHIBITED — this verifies
-      # the enum path works even when no catalog entry exists.
-      refute RiskClassifier.classify("nonexistent_action") |> elem(0) == :ok
-    end
-
     test "unknown action returns error, never defaults to a lower-risk class" do
       assert {:error, :unknown_action} = RiskClassifier.classify("magic_spell")
-      assert {:error, :unknown_action} = RiskClassifier.classify("")
-      assert {:error, :unknown_action} = RiskClassifier.classify(nil)
     end
 
-    test "resource-specific and generic entries both resolve" do
-      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", "PROPOSED")
-      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", "IN_PROGRESS")
-      assert {:ok, "ROUTINE"} = RiskClassifier.classify("list_company_tasks")
-    end
-
-    test "context parameter does not affect classification (pure function)" do
+    test "context parameter does not affect non-transition classification" do
       assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("cancel_task", nil, %{})
       assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("cancel_task", nil, %{evil: true})
-      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("cancel_task", nil, %{"anything" => "goes"})
     end
 
     test "falls back to {action, nil} entry when called with non-nil resource" do
-      # Regression test: actions cataloged as {action, nil} must still
-      # resolve when called with a specific (non-nil) resource.
       assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("cancel_task", "workspace:default")
       assert {:ok, "ROUTINE"} = RiskClassifier.classify("list_company_tasks", "any-resource")
       assert {:ok, "CONTROLLED"} = RiskClassifier.classify("create_task", "workspace:new")

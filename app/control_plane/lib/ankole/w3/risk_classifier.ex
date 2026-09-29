@@ -66,15 +66,12 @@ defmodule Ankole.W3.RiskClassifier do
     {"validate_assignment_eligibility", nil} => "ROUTINE",
     # Task creation — CONTROLLED
     {"create_task", nil} => "CONTROLLED",
-    # Task transitions — non-terminal = CONTROLLED
-    {"transition_task", "PROPOSED"} => "CONTROLLED",
-    {"transition_task", "IN_PROGRESS"} => "CONTROLLED",
-    {"transition_task", "BLOCKED"} => "CONTROLLED",
-    # Task cancellation / failure — HIGH-IMPACT
-    {"cancel_task", nil} => "HIGH-IMPACT",
-    {"fail_task", nil} => "HIGH-IMPACT",
-    # Agent assignment — HIGH-IMPACT (changes accountability)
-    {"assign_agent", nil} => "HIGH-IMPACT",
+    # Goal / Mission / Revision creation — CONTROLLED
+    {"create_goal", nil} => "CONTROLLED",
+    {"create_mission", nil} => "CONTROLLED",
+    {"create_revision", nil} => "CONTROLLED",
+    # Review creation — CONTROLLED
+    {"create_review", nil} => "CONTROLLED",
     # Result creation — CONTROLLED
     {"create_result", nil} => "CONTROLLED",
     # Review invalidation — CONTROLLED
@@ -85,8 +82,29 @@ defmodule Ankole.W3.RiskClassifier do
     # Child task / delegation — CONTROLLED
     {"create_child_task", nil} => "CONTROLLED",
     {"create_delegation", nil} => "CONTROLLED",
+    # Task cancellation / failure — HIGH-IMPACT
+    {"cancel_task", nil} => "HIGH-IMPACT",
+    {"fail_task", nil} => "HIGH-IMPACT",
+    # Agent assignment — HIGH-IMPACT (changes accountability)
+    {"assign_agent", nil} => "HIGH-IMPACT",
     # Child policy change — HIGH-IMPACT (affects all children)
     {"set_child_policy", nil} => "HIGH-IMPACT"
+  }
+
+  # Target-status → risk class for transition_task.
+  # Classification is driven by the requested target status from context, not
+  # by the opaque resource argument. The map intentionally omits PROPOSED,
+  # which is a source state, not a transition target; any unknown or absent
+  # status falls through to {:error, :unknown_action}.
+  @transition_targets %{
+    "READY" => "CONTROLLED",
+    "ASSIGNED" => "CONTROLLED",
+    "IN_PROGRESS" => "CONTROLLED",
+    "WAITING" => "CONTROLLED",
+    "REVIEW" => "CONTROLLED",
+    "COMPLETED" => "HIGH-IMPACT",
+    "CANCELLED" => "HIGH-IMPACT",
+    "FAILED" => "HIGH-IMPACT"
   }
 
   # ─── public API ─────────────────────────────────────────────────────────
@@ -113,16 +131,32 @@ defmodule Ankole.W3.RiskClassifier do
   not influence the result — classification is by consequence, not by
   requester.
 
+  For `transition_task`, the target lifecycle state is read from
+  `context[:to_status]`. The resource argument is intentionally ignored
+  for this action so callers are free to supply whatever opaque value
+  fits their convention without affecting classification.
+
   Known actions return `{:ok, class}`. Unknown actions return
   `{:error, :unknown_action}` so that the caller can decide how to
   proceed (typically deny). No silent fallback to a lower-risk class.
   """
   @spec classify(String.t(), String.t() | nil, map()) ::
           {:ok, String.t()} | {:error, atom()}
-  def classify(action, resource \\ nil, _context \\ %{}) do
-    case Map.get(@catalog, {action, resource}) || Map.get(@catalog, {action, nil}) || Map.get(@catalog, action) do
+  def classify(action, resource \\ nil, context \\ %{}) do
+    class =
+      case action do
+        "transition_task" ->
+          Map.get(@transition_targets, Map.get(context, :to_status)) ||
+            Map.get(@catalog, {action, resource}) ||
+            Map.get(@catalog, {action, nil})
+
+        _ ->
+          Map.get(@catalog, {action, resource}) || Map.get(@catalog, {action, nil}) || Map.get(@catalog, action)
+      end
+
+    case class do
       nil -> {:error, :unknown_action}
-      class when class in @canonical_classes -> {:ok, class}
+      cls when cls in @canonical_classes -> {:ok, cls}
     end
   end
 
