@@ -83,6 +83,30 @@ defmodule Ankole.W3.CapabilityStore do
   end
 
   @doc """
+  Fetches one Capability by stable UID within the caller's Company with FOR UPDATE lock.
+
+  A Capability belonging to another Company is not found. A missing UID is
+  not found. This locks the Capability row for the duration of the transaction.
+  """
+  @spec fetch_capability_for_update(Ecto.Repo.t(), String.t(), String.t()) ::
+          {:ok, Capability.t()} | {:error, term()}
+  def fetch_capability_for_update(repo, company_uid, capability_uid) do
+    with :ok <- ensure_company_exists(repo, company_uid),
+         {:ok, normalized_uid} <- PrincipalKey.normalize(capability_uid) do
+      case repo.one(
+             from capability in Capability,
+             where:
+               capability.uid == ^normalized_uid and
+                 capability.company_uid == ^company_uid,
+             lock: "FOR UPDATE"
+           ) do
+        %Capability{} = capability -> {:ok, capability}
+        nil -> {:error, :not_found}
+      end
+    end
+  end
+
+  @doc """
   Lists the Capabilities issued to one Principal inside one Company.
   """
   @spec list_principal_capabilities(Ecto.Repo.t(), String.t(), String.t()) ::

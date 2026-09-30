@@ -297,11 +297,81 @@ defmodule Ankole.W3.CapabilityService do
   defp check_not_revoked(%Capability{revoked_at: nil}), do: :ok
   defp check_not_revoked(%Capability{revoked_at: _}), do: {:error, :revoked}
 
+  # A Capability carries its lifecycle state in `status` only. A row moved to
+  # `:expired` or `:revoked` by a lifecycle transition has no `expires_at` or
+  # `revoked_at` to read, so the status is the sole proof that the Capability
+  # is unusable. Validation must gate on it, not on the nullable timestamps.
+  defp check_active_status(%Capability{status: :active}), do: :ok
+  defp check_active_status(%Capability{} = capability), do: consume_error(capability)
+
   defp check_parent_active(_repo, nil), do: :ok
-  defp check_parent_active(repo, parent_uid) do
+
+  defp check_parent_active(repo, parent_uid) when is_binary(parent_uid) do
     case repo.get_by(Capability, uid: parent_uid) do
       %Capability{status: :active} -> :ok
       _ -> {:error, :parent_capability_invalid}
+    end
+  end
+
+  # ─── Capability Consumption ────────────────────────────────────────────────
+
+  @doc """
+  Consumes an already-locked Capability within the same transaction.
+
+  Expects the Capability row to already be locked by the caller (via
+  fetch_capability_for_update/3 or equivalent). Validates that the Capability
+  is still :active, then atomically updates status to :consumed.
+
+  No additional row lock is taken. The caller's transaction must already
+  hold the FOR UPDATE lock on the Capability row.
+
+  Returns {:ok, updated_capability} or {:error, reason}.
+  """
+  @spec consume_locked(Ecto.Repo.t(), Capability.t()) ::
+          {:ok, Capability.t()} | {:error, atom()}
+  def consume_locked(repo, capability) do
+    if capability.status != :active do
+      consume_error(capability)
+    else
+      case Capability.changeset(capability, %{status: :consumed}) |> repo.update() do
+        {:ok, updated} -> {:ok, updated}
+        {:error, _} -> {:error, :consumption_failed}
+      end
+    end
+  end
+
+  defp consume_error(%Capability{status: :consumed}), do: {:error, :already_consumed}
+  defp consume_error(%Capability{status: :revoked}), do: {:error, :revoked}
+  defp consume_error(%Capability{status: :expired}), do: {:error, :expired}
+  defp consume_error(_), do: {:error, :invalid_state}
+
+  @doc """
+  Validates operational checks for a pre-fetched Capability struct.
+
+  Does not fetch from DB. Reuses existing operational validation logic.
+  Caller must ensure the Capability is already fetched and locked if needed.
+
+  Checks:
+  - status is :active
+  - Principal is active
+  - Issuer is active
+  - Not expired
+  - Not revoked
+  - Not consumed
+  - Parent is active (if present)
+
+  Returns :ok or {:error, reason}.
+  """
+  @spec validate_prefetched_capability(Ecto.Repo.t(), Capability.t()) ::
+          :ok | {:error, atom()}
+  def validate_prefetched_capability(repo, capability) do
+    with :ok <- check_active_status(capability),
+         :ok <- check_not_expired(capability),
+         :ok <- check_not_revoked(capability),
+         :ok <- check_principal_active(repo, capability.principal_uid),
+         :ok <- check_issuer_active(repo, capability.issued_by_principal_uid),
+         :ok <- check_parent_active(repo, capability.parent_capability_uid) do
+      :ok
     end
   end
 

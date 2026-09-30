@@ -19,6 +19,7 @@ defmodule Ankole.W3.CapabilityStoreTest do
   alias Ankole.W3.CapabilityStore
 
   import Ankole.PrincipalsFixtures
+  alias Ankole.W3.CapabilityService
 
   # ─── fixtures ─────────────────────────────────────────────────────────────
 
@@ -565,6 +566,507 @@ defmodule Ankole.W3.CapabilityStoreTest do
       refute String.contains?(source, "def update_capability")
       refute String.contains?(source, "def delete_capability")
       # Lifecycle transitions are in CapabilityService, not store
+    # Lifecycle transitions are in CapabilityService, not store
     end
+  end
+
+  # ─── B-5: Capability Consumption / Non-Replay ───────────────────────────
+
+  describe "B-5: Capability FOR UPDATE fetch and consume_locked" do
+    setup do
+      suffix = System.unique_integer([:positive])
+      %{principal: owner} = human_fixture(uid: "b5-owner-#{suffix}")
+      company = company_fixture(owner.uid)
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, owner.uid)
+      end)
+
+      %{principal: holder} = human_fixture(uid: "b5-holder-#{suffix}")
+      %{principal: issuer} = human_fixture(uid: "b5-issuer-#{suffix}")
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, holder.uid)
+      end)
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, issuer.uid)
+      end)
+
+      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{
+        uid: "b5-cap-#{suffix}",
+        action: "workspace:read",
+        resource: "workspace:default",
+        risk_class: "CONTROLLED",
+        scope: %{"task_uid" => "task-a"},
+        constraints: %{"max_duration" => 3600}
+      })
+
+      %{company: company, holder: holder, issuer: issuer, cap: cap}
+    end
+
+    # B5-T1 Active Capability can be fetched FOR UPDATE and consumed once.
+    test "B5-T1 Active Capability can be fetched FOR UPDATE and consumed once", %{company: company, cap: cap} do
+      {:ok, locked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert locked.uid == cap.uid
+      assert locked.status == :active
+
+      assert {:ok, consumed} = CapabilityService.consume_locked(Repo, locked)
+      assert consumed.status == :consumed
+
+      # Verify it's persisted
+      refreshed = Repo.get(Capability, consumed.id)
+      assert refreshed.status == :consumed
+    end
+
+    # B5-T2 Consumed Capability cannot be consumed again.
+    test "B5-T2 Consumed Capability cannot be consumed again", %{company: company, cap: cap} do
+      {:ok, locked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert {:ok, _consumed} = CapabilityService.consume_locked(Repo, locked)
+
+      # Re-fetch to get the consumed state
+      {:ok, consumed} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert {:error, :already_consumed} = CapabilityService.consume_locked(Repo, consumed)
+    end
+
+    # B5-T3 Consumed Capability fails prefetched operational validation.
+    test "B5-T3 Consumed Capability fails prefetched operational validation", %{company: company, cap: cap} do
+      {:ok, locked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert {:ok, _consumed} = CapabilityService.consume_locked(Repo, locked)
+
+      # Re-fetch to get the consumed state
+      {:ok, consumed} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert {:error, :already_consumed} = CapabilityService.validate_prefetched_capability(Repo, consumed)
+    end
+
+    # B5-T4 Revoked Capability cannot consume -> :revoked.
+    test "B5-T4 Revoked Capability cannot consume -> :revoked", %{company: company, cap: cap} do
+      assert {:ok, _} = CapabilityService.revoke_capability(Repo, company.uid, cap.uid, cap.issued_by_principal_uid)
+
+      # Re-fetch to get the revoked state
+      {:ok, revoked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert {:error, :revoked} = CapabilityService.consume_locked(Repo, revoked)
+    end
+
+    # B5-T5 A persisted expired Capability is rejected by consume and by validation.
+    test "B5-T5 A persisted expired Capability is rejected by consume and by validation", %{company: company, holder: holder, issuer: issuer, cap: cap} do
+      # Expire by lifecycle transition: the row keeps no expires_at, so only
+      # the lifecycle status proves it is unusable.
+      assert {:ok, expired} = CapabilityService.expire_capability(Repo, company.uid, cap.uid)
+      assert expired.status == :expired
+      assert is_nil(expired.expires_at)
+
+      {:ok, locked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert {:error, :expired} = CapabilityService.consume_locked(Repo, locked)
+      assert {:error, :expired} = CapabilityService.validate_prefetched_capability(Repo, locked)
+
+      # A Capability past its expires_at is rejected before consumption too.
+      timed = capability_fixture(company.uid, holder.uid, issuer.uid, %{
+        uid: "b5-exp-#{System.unique_integer([:positive])}",
+        expires_at: ~U[2020-01-01T00:00:00Z]
+      })
+
+      {:ok, timed_locked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, timed.uid)
+      assert {:error, :expired} = CapabilityService.validate_prefetched_capability(Repo, timed_locked)
+    end
+
+    # B5-T6 Wrong Company cannot fetch for update -> :not_found.
+    test "B5-T6 Wrong Company cannot fetch for update -> :not_found", %{cap: cap} do
+      %{principal: owner2} = human_fixture(uid: "b5-owner2-#{System.unique_integer([:positive])}")
+      company2 = company_fixture(owner2.uid)
+
+      assert {:error, :not_found} = CapabilityStore.fetch_capability_for_update(Repo, company2.uid, cap.uid)
+
+      # The same wrong-Company attempt through consumption fails closed too.
+      assert {:error, :not_found} =
+               CapabilityService.validate_capability(Repo, company2.uid, cap.uid, [])
+    end
+
+    # B5-T7 Two sequential replays in separate transactions produce one success.
+    test "B5-T7 Two sequential replays in separate transactions produce one success", %{company: company, cap: cap} do
+      results =
+        for _attempt <- 1..2 do
+          transact(fn repo ->
+            {:ok, locked} = CapabilityStore.fetch_capability_for_update(repo, company.uid, cap.uid)
+
+            case CapabilityService.consume_locked(repo, locked) do
+              {:ok, consumed} -> {:ok, consumed.status}
+              {:error, reason} -> {:error, reason}
+            end
+          end)
+        end
+
+      assert [{:ok, :consumed}, {:error, :already_consumed}] = results
+      assert %Capability{status: :consumed} = Repo.get!(Capability, cap.id)
+    end
+
+    # B5-T9 A rolled back consume leaves the Capability active and reusable.
+    test "B5-T9 A rolled back consume leaves the Capability active and reusable", %{company: company, cap: cap} do
+      assert {:error, :rolled_back} =
+               transact(fn repo ->
+                 {:ok, locked} = CapabilityStore.fetch_capability_for_update(repo, company.uid, cap.uid)
+                 assert {:ok, %Capability{status: :consumed}} = CapabilityService.consume_locked(repo, locked)
+                 Repo.rollback(:rolled_back)
+               end)
+
+      assert %Capability{status: :active} = Repo.get!(Capability, cap.id)
+
+      # The row is still consumable, so the rollback released both the update
+      # and the row lock.
+      assert {:ok, _consumed} =
+               transact(fn repo ->
+                 {:ok, locked} = CapabilityStore.fetch_capability_for_update(repo, company.uid, cap.uid)
+                 CapabilityService.consume_locked(repo, locked)
+               end)
+
+      assert %Capability{status: :consumed} = Repo.get!(Capability, cap.id)
+    end
+
+    # B5-T10 A failure after consume rolls the whole transaction back.
+    test "B5-T10 A failure after consume rolls the whole transaction back", %{company: company, cap: cap} do
+      assert {:error, :downstream_failed} =
+               transact(fn repo ->
+                 {:ok, locked} = CapabilityStore.fetch_capability_for_update(repo, company.uid, cap.uid)
+                 assert {:ok, _consumed} = CapabilityService.consume_locked(repo, locked)
+
+                 # A later step of the same action fails, so the consume must
+                 # not survive the transaction.
+                 Repo.rollback(:downstream_failed)
+               end)
+
+      assert %Capability{status: :active} = Repo.get!(Capability, cap.id)
+      assert :ok = CapabilityService.validate_capability(Repo, company.uid, cap.uid, [])
+    end
+
+    # B5-T11 The B-4 exact binding validator accepts the already-locked struct.
+    test "B5-T11 The B-4 exact binding validator accepts the already-locked struct", %{company: company, holder: holder, cap: cap} do
+      expected = [
+        principal_uid: holder.uid,
+        action: cap.action,
+        resource: cap.resource,
+        risk_class: cap.risk_class,
+        approval_uid: nil,
+        scope: cap.scope,
+        constraints: cap.constraints
+      ]
+
+      assert {:ok, locked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert :ok = CapabilityService.validate_exact_binding(locked, expected)
+      assert :ok = CapabilityService.validate_prefetched_capability(Repo, locked)
+
+      # A wrong intent on the same locked struct fails closed.
+      assert {:error, :principal_mismatch} =
+               CapabilityService.validate_exact_binding(
+                 locked,
+                 Keyword.put(expected, :principal_uid, cap.issued_by_principal_uid)
+               )
+
+      assert {:error, :resource_mismatch} =
+               CapabilityService.validate_exact_binding(
+                 locked,
+                 Keyword.put(expected, :resource, "workspace:other")
+               )
+
+      assert {:error, :risk_class_mismatch} =
+               CapabilityService.validate_exact_binding(
+                 locked,
+                 Keyword.put(expected, :risk_class, "ROUTINE")
+               )
+    end
+
+    # B5-T12 The consumption path uses the supplied repo and no global Repo.
+    test "B5-T12 The consumption path uses the supplied repo and no global Repo", %{company: company, cap: cap} do
+      # Both production functions take the transaction-local repo as their
+      # first argument, so the caller decides which connection sees the write.
+      assert Code.ensure_loaded?(CapabilityStore)
+      assert Code.ensure_loaded?(CapabilityService)
+      assert function_exported?(CapabilityStore, :fetch_capability_for_update, 3)
+      assert function_exported?(CapabilityService, :consume_locked, 2)
+      assert function_exported?(CapabilityService, :validate_prefetched_capability, 2)
+
+      # Neither module calls or aliases the global Repo module.
+      for file <- ["lib/ankole/w3/capability_store.ex", "lib/ankole/w3/capability_service.ex"] do
+        source = File.read!(file)
+
+        refute source =~ ~r/(?<![.\w])Repo\.[a-z_]+/,
+               "#{file} must not call the global Repo module"
+
+        refute source =~ "alias Ankole.Repo",
+               "#{file} must not alias the global Repo module"
+      end
+
+      # A consume written through the caller's transaction repo is undone by
+      # that transaction's rollback, so the write cannot have escaped it.
+      assert {:error, :rolled_back} =
+               transact(fn repo ->
+                 {:ok, locked} = CapabilityStore.fetch_capability_for_update(repo, company.uid, cap.uid)
+                 assert {:ok, _consumed} = CapabilityService.consume_locked(repo, locked)
+                 Repo.rollback(:rolled_back)
+               end)
+
+      assert %Capability{status: :active} = Repo.get!(Capability, cap.id)
+    end
+
+    # B5-T13 Consuming a child leaves its parent and sibling active.
+    test "B5-T13 Consuming a child leaves its parent and sibling active", %{company: company, holder: holder, issuer: issuer, cap: parent} do
+      child =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          uid: "b5-child-#{System.unique_integer([:positive])}",
+          action: parent.action,
+          resource: parent.resource,
+          risk_class: parent.risk_class,
+          scope: parent.scope,
+          constraints: parent.constraints,
+          parent_capability_uid: parent.uid
+        })
+
+      sibling =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          uid: "b5-sibling-#{System.unique_integer([:positive])}",
+          action: parent.action,
+          resource: parent.resource,
+          risk_class: parent.risk_class,
+          scope: parent.scope,
+          constraints: parent.constraints,
+          parent_capability_uid: parent.uid
+        })
+
+      assert {:ok, locked_child} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, child.uid)
+      assert :ok = CapabilityService.validate_prefetched_capability(Repo, locked_child)
+      assert {:ok, %Capability{status: :consumed}} = CapabilityService.consume_locked(Repo, locked_child)
+
+      assert %Capability{status: :active} = Repo.get!(Capability, parent.id)
+      assert %Capability{status: :active} = Repo.get!(Capability, sibling.id)
+
+      # The sibling still consumes, so consuming one child does not consume the
+      # delegation chain it came from.
+      assert {:ok, locked_sibling} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, sibling.uid)
+      assert {:ok, %Capability{status: :consumed}} = CapabilityService.consume_locked(Repo, locked_sibling)
+    end
+
+    # B5-T14 Consuming one Capability leaves unrelated Capabilities active.
+    test "B5-T14 Consuming one Capability leaves unrelated Capabilities active", %{company: company, holder: holder, issuer: issuer, cap: cap} do
+      other = capability_fixture(company.uid, holder.uid, issuer.uid, %{uid: "b5-other-#{System.unique_integer([:positive])}"})
+
+      %{principal: outsider} = human_fixture(uid: "b5-outsider-#{System.unique_integer([:positive])}")
+
+      {:ok, _} =
+        transact(fn repo ->
+          Ankole.Company.MembershipStore.add_member(repo, company.uid, outsider.uid)
+        end)
+
+      foreign = capability_fixture(company.uid, outsider.uid, issuer.uid, %{uid: "b5-foreign-#{System.unique_integer([:positive])}"})
+
+      assert {:ok, locked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      assert {:ok, _consumed} = CapabilityService.consume_locked(Repo, locked)
+
+      assert %Capability{status: :active} = Repo.get!(Capability, other.id)
+      assert %Capability{status: :active} = Repo.get!(Capability, foreign.id)
+
+      assert :ok = CapabilityService.validate_capability(Repo, company.uid, other.uid, [])
+      assert :ok = CapabilityService.validate_capability(Repo, company.uid, foreign.uid, [])
+    end
+
+    # B5-T15 Consumption records no consumed_at and needs no migration.
+    test "B5-T15 Consumption records no consumed_at and needs no migration", %{company: company, cap: cap} do
+      refute :consumed_at in Capability.__schema__(:fields)
+
+      {:ok, locked} = CapabilityStore.fetch_capability_for_update(Repo, company.uid, cap.uid)
+      {:ok, consumed} = CapabilityService.consume_locked(Repo, locked)
+
+      refute Map.has_key?(consumed, :consumed_at)
+      assert consumed.status == :consumed
+
+      persisted = Repo.get!(Capability, cap.id)
+      refute Map.has_key?(persisted, :consumed_at)
+      assert persisted.revoked_at == locked.revoked_at
+      assert persisted.updated_at >= consumed.inserted_at
+
+      columns =
+        Repo.query!(
+          "SELECT column_name FROM information_schema.columns WHERE table_name = 'capabilities'"
+        ).rows |> List.flatten()
+
+      refute "consumed_at" in columns
+      assert "status" in columns
+    end
+  end
+
+  end
+
+defmodule Ankole.W3.CapabilityStoreConcurrencyTest do
+  @moduledoc """
+  B5-T8: the real two-transaction non-replay proof.
+
+  The sandbox gives one process one connection, so it cannot show that a
+  second transaction blocks on the first transaction's `FOR UPDATE` lock. This
+  module therefore leaves the sandbox with `unboxed_run` and drives two
+  separate connections against one committed Capability row. Because those rows
+  are committed for real, the module deletes every row it creates.
+  """
+
+  # Serial: this test commits rows outside the sandbox and coordinates two
+  # blocking connections, so it cannot run concurrently with other tests.
+  use Ankole.DataCase, async: false
+
+  import Ankole.PrincipalsFixtures
+
+  alias Ankole.Company
+  alias Ankole.Company.MembershipStore
+  alias Ankole.Principals.Principal
+  alias Ankole.Repo
+  alias Ankole.W3.Capability
+  alias Ankole.W3.CapabilityService
+  alias Ankole.W3.CapabilityStore
+
+  alias Ecto.Adapters.SQL.Sandbox
+
+  # B5-T8 Two independent transactions consuming the same row: one success.
+  @tag ownership_timeout: 30_000
+  test "B5-T8 Two independent transactions consuming the same row: one success" do
+    parent = self()
+
+    {company_uid, capability_uid, principal_uids} =
+      Sandbox.unboxed_run(Repo, fn ->
+        suffix = System.unique_integer([:positive])
+
+        %{principal: owner} = human_fixture(uid: "b5-t8-owner-#{suffix}")
+
+        {:ok, company} =
+          %Company{}
+          |> Company.changeset(%{
+            uid: "b5-t8-company-#{suffix}",
+            name: "b5-t8-company-#{suffix}",
+            display_name: "B5 T8 Company",
+            status: :active,
+            metadata: %{},
+            owner_principal_uid: owner.uid
+          })
+          |> Repo.insert()
+
+        %{principal: holder} = human_fixture(uid: "b5-t8-holder-#{suffix}")
+        %{principal: issuer} = human_fixture(uid: "b5-t8-issuer-#{suffix}")
+
+        for uid <- [owner.uid, holder.uid, issuer.uid] do
+          {:ok, _membership} = MembershipStore.add_member(Repo, company.uid, uid)
+        end
+
+        {:ok, capability} =
+          %Capability{}
+          |> Capability.changeset(%{
+            uid: "b5-t8-cap-#{suffix}",
+            company_uid: company.uid,
+            principal_uid: holder.uid,
+            action: "workspace:read",
+            resource: "workspace:default",
+            status: :active,
+            risk_class: "CONTROLLED",
+            issued_at: ~U[2026-09-26T10:00:00Z],
+            issued_by_principal_uid: issuer.uid,
+            scope: %{},
+            constraints: %{}
+          })
+          |> Repo.insert()
+
+        {company.uid, capability.uid, [owner.uid, holder.uid, issuer.uid]}
+      end)
+
+    on_exit(fn ->
+      Sandbox.unboxed_run(Repo, fn ->
+        import Ecto.Query
+
+        Capability
+        |> where([capability], capability.uid == ^capability_uid)
+        |> Repo.delete_all()
+
+        Ankole.Company.Membership
+        |> where([membership], membership.company_uid == ^company_uid)
+        |> Repo.delete_all()
+
+        Company
+        |> where([company], company.uid == ^company_uid)
+        |> Repo.delete_all()
+
+        slugs = Enum.map(principal_uids, &"people/#{&1}")
+
+        Ankole.Brain.Schemas.Object
+        |> where([object], object.slug in ^slugs)
+        |> Repo.delete_all()
+
+        Ankole.Principals.HumanUser
+        |> where([human], human.principal_uid in ^principal_uids)
+        |> Repo.delete_all()
+
+        Principal
+        |> where([principal], principal.uid in ^principal_uids)
+        |> Repo.delete_all()
+      end)
+    end)
+
+    # Tx A locks the row with FOR UPDATE and holds the lock open.
+    tx_a =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          Repo.transact(fn repo ->
+            {:ok, locked} = CapabilityStore.fetch_capability_for_update(repo, company_uid, capability_uid)
+            assert locked.status == :active
+
+            send(parent, {:tx_a_locked, self()})
+
+            receive do
+              :consume_and_commit -> {:ok, CapabilityService.consume_locked(repo, locked)}
+            end
+          end)
+        end)
+      end)
+
+    assert_receive {:tx_a_locked, tx_a_pid}, 10_000
+
+    # Tx B is a genuinely independent transaction on its own connection. It
+    # announces that it is about to lock the row, then blocks inside the
+    # `FOR UPDATE` while Tx A holds the lock.
+    tx_b =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          send(parent, {:tx_b_attempting_lock, System.monotonic_time(:millisecond)})
+
+          Repo.transact(fn repo ->
+            started = System.monotonic_time(:millisecond)
+            {:ok, locked_b} = CapabilityStore.fetch_capability_for_update(repo, company_uid, capability_uid)
+            waited = System.monotonic_time(:millisecond) - started
+
+            send(parent, {:tx_b_observed, locked_b.status, waited})
+
+            case CapabilityService.consume_locked(repo, locked_b) do
+              {:ok, consumed} -> {:ok, consumed.status}
+              {:error, reason} -> {:error, reason}
+            end
+          end)
+        end)
+      end)
+
+    assert_receive {:tx_b_attempting_lock, attempted_at}, 10_000
+
+    # Tx B has reached the lock query while Tx A still holds the lock, so any
+    # status it reports must have been read after Tx A released the lock.
+    Process.sleep(300)
+    refute_received {:tx_b_observed, _status, _waited}
+    assert Process.alive?(tx_b.pid)
+
+    # Tx A consumes and commits, releasing the lock.
+    send(tx_a_pid, :consume_and_commit)
+    assert {:ok, {:ok, %Capability{status: :consumed}}} = Task.await(tx_a, 15_000)
+
+    # Tx B resumes and observes the committed :consumed row.
+    assert_receive {:tx_b_observed, :consumed, waited}, 15_000
+    assert waited >= 250, "Tx B must have blocked on Tx A's row lock, waited #{waited}ms"
+    assert System.monotonic_time(:millisecond) - attempted_at >= 250
+
+    assert {:error, :already_consumed} = Task.await(tx_b, 15_000)
+
+    # Exactly one of the two transactions consumed the Capability.
+    Sandbox.unboxed_run(Repo, fn ->
+      assert %Capability{status: :consumed} =
+               Repo.get_by!(Capability, uid: capability_uid, company_uid: company_uid)
+    end)
   end
 end
