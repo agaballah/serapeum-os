@@ -1215,4 +1215,467 @@ defmodule Ankole.W3.ActionAssuranceTest do
                )
     end
   end
+
+  # ─── B-16: fail-closed execution restriction gate ──────────────────────────
+  #
+  # B-4 proves the caller's maps equal the Capability's stored maps. It does
+  # not prove those maps restrict the operation, because the expected maps
+  # arrive as caller options. B-16 refuses any non-empty map the system
+  # cannot interpret, and it runs only after binding succeeds.
+
+  describe "assure/7 — B16 execution restriction gate" do
+    setup do
+      suffix = System.unique_integer([:positive])
+      %{principal: owner} = human_fixture(uid: "b16-owner-#{suffix}")
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "b16-holder-#{suffix}")
+      %{principal: issuer} = human_fixture(uid: "b16-issuer-#{suffix}")
+      %{principal: approver} = human_fixture(uid: "b16-approver-#{suffix}")
+
+      for principal <- [owner, holder, issuer, approver] do
+        assert {:ok, _m} = MembershipStore.add_member(Repo, company.uid, principal.uid)
+      end
+
+      {:ok, task_resource} = Resource.build("transition_task", company.uid, %{task_uid: "task-b16"})
+      {:ok, collection_resource} = Resource.build("create_task", company.uid, %{})
+
+      grant_fixture(holder.uid, company.uid, task_resource, "transition_task")
+      grant_fixture(holder.uid, company.uid, collection_resource, "create_task")
+
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: task_resource,
+        collection_resource: collection_resource
+      }
+    end
+
+    # B16-T8 — the supported pair must not disturb a normal assurance.
+    test "B16-T8 empty scope and empty constraints remain successful", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          scope: %{},
+          constraints: %{}
+        })
+
+      assert {:ok, ctx} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 scope: %{},
+                 constraints: %{}
+               )
+
+      assert ctx.capability_uid == cap.uid
+      assert ctx.intent_resource == resource
+    end
+
+    # B16-T9 — exact echoed non-empty scope passes B-4, then B-16 refuses.
+    test "B16-T9 exact echoed non-empty scope is refused after binding", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      scope = %{"task_uid" => "task-b16"}
+      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{action: "transition_task", resource: resource, risk_class: "CONTROLLED", scope: scope})
+
+      # Prove B-4 is satisfied by this exact pair, so the refusal cannot be
+      # attributed to binding.
+      assert :ok =
+               CapabilityService.validate_exact_binding(cap,
+                 principal_uid: cap.principal_uid,
+                 action: "transition_task",
+                 resource: resource,
+                 risk_class: "CONTROLLED",
+                 approval_uid: nil,
+                 scope: scope,
+                 constraints: %{}
+               )
+
+      assert {:error, :unsupported_restriction} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 scope: scope
+               )
+    end
+
+    # B16-T10
+    test "B16-T10 exact echoed non-empty constraints are refused after binding", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      constraints = %{"max_duration" => 3600}
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          constraints: constraints
+        })
+
+      assert :ok =
+               CapabilityService.validate_exact_binding(cap,
+                 principal_uid: cap.principal_uid,
+                 action: "transition_task",
+                 resource: resource,
+                 risk_class: "CONTROLLED",
+                 approval_uid: nil,
+                 scope: %{},
+                 constraints: constraints
+               )
+
+      assert {:error, :unsupported_restriction} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 constraints: constraints
+               )
+    end
+
+    # B16-T11 — echoing both maps cannot buy a bypass.
+    test "B16-T11 echoing both non-empty maps cannot bypass B-16", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      scope = %{"task_uid" => "task-b16"}
+      constraints = %{"max_duration" => 3600}
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          scope: scope,
+          constraints: constraints
+        })
+
+      # The caller replays exactly what the Capability stores.
+      assert {:error, :unsupported_restriction} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 scope: cap.scope,
+                 constraints: cap.constraints
+               )
+
+      # Every non-empty shape is refused, whatever it nests. Each Capability
+      # below is echoed exactly, so B-4 passes each time and B-16 alone
+      # produces the refusal.
+      shapes = [
+        {%{"task_uid" => "task-b16"}, %{"max_duration" => 3600}},
+        {%{"task" => %{"uid" => "task-b16"}}, %{"max_duration" => 3600}},
+        {%{"task_uid" => ["task-b16"]}, %{"max_duration" => 3600}},
+        {%{"task_uid" => "task-b16"}, %{"actors" => ["a1", "a2"]}},
+        {%{"task_uid" => "task-b16"}, %{"limits" => %{"duration" => 3600}}}
+      ]
+
+      for {s, c} <- shapes do
+        shaped =
+          capability_fixture(company.uid, holder.uid, issuer.uid, %{
+            action: "transition_task",
+            resource: resource,
+            risk_class: "CONTROLLED",
+            scope: s,
+            constraints: c
+          })
+
+        assert {:error, :unsupported_restriction} =
+                 ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, shaped.uid,
+                   risk_context: %{to_status: "READY"},
+                   scope: shaped.scope,
+                   constraints: shaped.constraints
+                 )
+      end
+
+      # A shape the Capability does not carry is refused earlier, by B-4. That
+      # ordering is deliberate and is what stops a caller from presenting a
+      # restriction the Capability never carried.
+      assert {:error, :capability_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 scope: %{"invented" => "by-caller"},
+                 constraints: constraints
+               )
+    end
+
+    # B16-T12 — B-4 must fail first, and must not be relabelled.
+    test "B16-T12 B-4 scope mismatch fails before B-16 as capability_invalid", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          scope: %{"x" => 1}
+        })
+
+      # Internal B-4 reason is still :scope_mismatch.
+      assert {:error, :scope_mismatch} =
+               CapabilityService.validate_exact_binding(cap,
+                 principal_uid: cap.principal_uid,
+                 action: "transition_task",
+                 resource: resource,
+                 risk_class: "CONTROLLED",
+                 approval_uid: nil,
+                 scope: %{"x" => 2},
+                 constraints: %{}
+               )
+
+      # The boundary reports B-4, not B-16, because binding runs first.
+      assert {:error, :capability_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 scope: %{"x" => 2}
+               )
+
+      # The same exact map passes B-4 and is then refused by B-16 instead.
+      assert {:error, :unsupported_restriction} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 scope: %{"x" => 1}
+               )
+    end
+
+    # B16-T13
+    test "B16-T13 B-4 constraints mismatch fails before B-16 as capability_invalid", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          constraints: %{"x" => 1}
+        })
+
+      assert {:error, :constraints_mismatch} =
+               CapabilityService.validate_exact_binding(cap,
+                 principal_uid: cap.principal_uid,
+                 action: "transition_task",
+                 resource: resource,
+                 risk_class: "CONTROLLED",
+                 approval_uid: nil,
+                 scope: %{},
+                 constraints: %{"x" => 2}
+               )
+
+      assert {:error, :capability_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 constraints: %{"x" => 2}
+               )
+
+      assert {:error, :unsupported_restriction} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 constraints: %{"x" => 1}
+               )
+    end
+
+    # B16-T14 — HIGH-IMPACT keeps its Approval contract with empty maps.
+    test "B16-T14 HIGH-IMPACT with empty restrictions keeps the Approval contract", context do
+      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+
+      {:ok, approval} =
+        ApprovalStore.create_approval(Repo, %{
+          uid: "b16-T14-appr-#{System.unique_integer([:positive])}",
+          company_uid: company.uid,
+          requester_uid: holder.uid,
+          approver_uid: approver.uid,
+          action: "cancel_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT"
+        })
+
+      {:ok, _approved} = ApprovalStore.approve_approval(Repo, company.uid, approval.uid, approver.uid)
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "cancel_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT",
+          approval_uid: approval.uid,
+          scope: %{},
+          constraints: %{}
+        })
+
+      # A HIGH-IMPACT Capability that carries no Approval at all reaches the
+      # Approval stage with binding already satisfied, so the refusal is
+      # attributable to the missing Approval and not to B-16.
+      unbound =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "cancel_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT",
+          scope: %{},
+          constraints: %{}
+        })
+
+      grant_fixture(holder.uid, company.uid, resource, "cancel_task")
+
+      # Missing Approval still fails on the Approval stage, not on B-16.
+      assert {:error, :approval_required} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "cancel_task", resource, unbound.uid,
+                 risk_context: %{},
+                 scope: %{},
+                 constraints: %{}
+               )
+
+      assert {:ok, ctx} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "cancel_task", resource, cap.uid,
+                 risk_context: %{},
+                 approval_uid: approval.uid,
+                 scope: %{},
+                 constraints: %{}
+               )
+
+      assert ctx.risk_class == "HIGH-IMPACT"
+      assert ctx.approval_uid == approval.uid
+    end
+
+    # B16-T15
+    test "B16-T15 CONTROLLED with empty restrictions remains green", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{action: "transition_task", resource: resource, risk_class: "CONTROLLED"})
+
+      assert {:ok, ctx} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "IN_PROGRESS"}
+               )
+
+      assert ctx.risk_class == "CONTROLLED"
+    end
+
+    # B16-T16 — collection authority is represented by its canonical Resource.
+    test "B16-T16 collection action with empty restrictions is valid under its collection Resource", context do
+      %{company: company, holder: holder, issuer: issuer, collection_resource: resource} = context
+
+      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{action: "create_task", resource: resource, risk_class: "CONTROLLED"})
+
+      assert {:ok, ctx} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "create_task", resource, cap.uid,
+                 scope: %{},
+                 constraints: %{}
+               )
+
+      # The Company collection Resource is what binds this authority. B-16
+      # does not require an artificial scope to make it valid.
+      assert ctx.intent_resource == "w2:v1/company/#{company.uid}/tasks"
+    end
+
+    # B16-T17 — issuance and persistence are untouched by B-16.
+    test "B16-T17 non-empty restrictions still persist; only assurance is denied", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      scope = %{"task_uid" => "task-b16"}
+      constraints = %{"max_duration" => 3600}
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          scope: scope,
+          constraints: constraints
+        })
+
+      # The row exists, keeps its provenance, and reads back unchanged.
+      {:ok, persisted} = Ankole.W3.CapabilityStore.fetch_capability(Repo, company.uid, cap.uid)
+      assert persisted.status == :active
+      assert persisted.scope == scope
+      assert persisted.constraints == constraints
+
+      # B-4 still accepts it as an exactly-bound authority.
+      assert :ok =
+               CapabilityService.validate_exact_binding(persisted,
+                 principal_uid: persisted.principal_uid,
+                 action: "transition_task",
+                 resource: resource,
+                 risk_class: "CONTROLLED",
+                 approval_uid: nil,
+                 scope: scope,
+                 constraints: constraints
+               )
+
+      # Only assurance is refused.
+      assert {:error, :unsupported_restriction} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 scope: scope,
+                 constraints: constraints
+               )
+    end
+  end
+
+  # ─── B-16 integration boundaries ───────────────────────────────────────────
+
+  describe "B16 integration boundary" do
+    @assurance_source File.read!("lib/ankole/w3/action_assurance.ex")
+
+    test "B16 evaluates restrictions only after Capability validation" do
+      chain = @assurance_source |> String.split("\n") |> Enum.map(&String.trim/1)
+
+      capability_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_capability("))
+      restriction_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
+      approval_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_approval_requirement("))
+
+      assert is_integer(capability_index)
+      assert is_integer(restriction_index)
+      assert is_integer(approval_index)
+
+      assert capability_index < restriction_index
+      assert restriction_index < approval_index
+    end
+
+    test "B16 runs before AuthZ is bypassed and after risk recomputation" do
+      chain = @assurance_source |> String.split("\n") |> Enum.map(&String.trim/1)
+
+      risk_index = Enum.find_index(chain, &String.contains?(&1, "check_not_prohibited("))
+      authz_index = Enum.find_index(chain, &String.contains?(&1, "check_authz("))
+      restriction_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
+
+      assert risk_index < authz_index
+      assert authz_index < restriction_index
+    end
+
+    test "B16 exposes unsupported_restriction at the assurance boundary" do
+      assert @assurance_source =~ "{:error, :unsupported_restriction} -> {:error, :unsupported_restriction}"
+    end
+
+    test "B16 cannot be skipped by omitting the Capability" do
+      chain = @assurance_source |> String.split("\n") |> Enum.map(&String.trim/1)
+
+      # The Capability-free clause short-circuits binding only. Restriction
+      # evaluation is a separate stage in the same `with` chain, so omitting a
+      # Capability cannot open a path around the gate.
+      assert Enum.any?(chain, &String.contains?(&1, "check_capability(_repo, _company_uid, nil,"))
+
+      restriction_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
+      receipt_index = Enum.find_index(chain, &String.contains?(&1, "{:ok, receipt_uid} <- generate_receipt_uid()"))
+
+      assert restriction_index < receipt_index
+    end
+
+    test "B16 introduces no W2 store dependency into assurance" do
+      for forbidden <- ["TaskStore", "MissionStore", "GoalStore", "ResultStore", "ReviewStore"] do
+        refute @assurance_source =~ forbidden
+      end
+    end
+
+    test "B16 does not change Resource, RiskClassifier, or the Capability modules" do
+      evaluator = File.read!("lib/ankole/w3/restriction_evaluator.ex")
+
+      # The evaluator reaches nothing outside itself.
+      refute evaluator =~ "Ankole.W3.Resource"
+      refute evaluator =~ "Ankole.W3.RiskClassifier"
+
+      # Resource grammar is untouched by this package.
+      resource_source = File.read!("lib/ankole/w3/resource.ex")
+      assert resource_source =~ "def build(action, company_uid, targets)"
+      assert resource_source =~ "def normalize_exact(resource)"
+    end
+  end
 end

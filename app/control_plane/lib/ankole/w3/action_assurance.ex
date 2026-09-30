@@ -17,6 +17,20 @@ defmodule Ankole.W3.ActionAssurance do
   - integrate with W2 stores (P8)
   - implement scheduling or worker recovery logic
 
+  Execution restrictions
+  ----------------------
+  Exact binding (B-4) proves that the `scope` and `constraints` maps passed
+  here equal the Capability's stored maps. It does not prove that those maps
+  restrict the operation, because the expected maps arrive as caller
+  options. `RestrictionEvaluator` closes that gap and runs only after
+  binding succeeds: a non-empty map would carry at least one key for which
+  this system defines no predicate, so it is refused rather than ignored.
+
+  A future recognized, state-dependent restriction cannot be decided here.
+  It would have to be evaluated inside the P8 mutation transaction, after
+  the relevant W2 target rows are locked and before the mutation applies,
+  because the locked row is the only stable value to compare against.
+
   Decision outcomes from `assure/6`:
   - `{:ok, assurance_context}` — chain passed; caller proceeds to broker
   - `{:error, reason}` — any stage failed; caller must not proceed
@@ -32,6 +46,7 @@ defmodule Ankole.W3.ActionAssurance do
   alias Ankole.W3.AuthZ, as: W3AuthZ
   alias Ankole.W3.CapabilityService
   alias Ankole.W3.Resource
+  alias Ankole.W3.RestrictionEvaluator
   alias Ankole.W3.RiskClassifier
 
   # ─── public API ──────────────────────────────────────────────────────────
@@ -79,6 +94,7 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
          :ok <- check_not_prohibited(risk_class),
          :ok <- check_authz(repo, company_uid, principal_uid, normalized_action, normalized_resource),
          :ok <- check_capability(repo, company_uid, capability_uid, normalized_action, principal_uid, normalized_resource, risk_class, approval_uid, scope, constraints),
+         :ok <- check_execution_restrictions(scope, constraints),
          :ok <- check_approval_requirement(risk_class, approval_uid),
          :ok <- check_approval_independence(repo, company_uid, approval_uid, principal_uid, normalized_action, normalized_resource, risk_class),
          {:ok, receipt_uid} <- generate_receipt_uid() do
@@ -102,6 +118,7 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
       {:error, :unknown_action} -> {:error, :unknown_action}
       {:error, :authz_denied} -> {:error, :authz_denied}
       {:error, :capability_invalid} -> {:error, :capability_invalid}
+      {:error, :unsupported_restriction} -> {:error, :unsupported_restriction}
       {:error, :approval_required} -> {:error, :approval_required}
       {:error, :approval_invalid} -> {:error, :approval_invalid}
       {:error, :invalid_action} -> {:error, :invalid_action}
@@ -198,6 +215,13 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
     case CapabilityService.validate_capability(repo, company_uid, capability_uid, action: action, principal_uid: principal_uid, resource: resource, risk_class: risk_class, approval_uid: approval_uid, scope: scope, constraints: constraints) do
       :ok -> :ok
       {:error, _} -> {:error, :capability_invalid}
+    end
+  end
+
+  defp check_execution_restrictions(scope, constraints) do
+    case RestrictionEvaluator.evaluate(scope, constraints) do
+      :ok -> :ok
+      {:error, :unsupported_restriction} -> {:error, :unsupported_restriction}
     end
   end
 
