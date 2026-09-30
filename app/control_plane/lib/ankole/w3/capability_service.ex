@@ -19,6 +19,11 @@ defmodule Ankole.W3.CapabilityService do
   alias Ankole.W3.CapabilityStore
   alias Ankole.W3.Resource
 
+  # A delegation chain deeper than this is refused rather than walked. The
+  # visited set already rejects cycles, so this only bounds an acyclic chain
+  # that a caller could otherwise grow without limit.
+  @max_parent_chain_depth 64
+
   # ─── public API ──────────────────────────────────────────────────────────
 
   @doc """
@@ -27,10 +32,33 @@ defmodule Ankole.W3.CapabilityService do
   Validates the issuer is an active member of the Company. If a
   `parent_capability_uid` is supplied, enforces MA-06 §12 attenuation:
   the child capability must not exceed the parent's authority.
+
+  A child issuance locks its parent with `FOR UPDATE` and commits the child
+  in the same transaction, so a parent that changes state concurrently cannot
+  pass attenuation and then change before the child exists.
   """
   @spec issue_capability(Ecto.Repo.t(), map()) ::
           {:ok, Capability.t()} | {:error, term()}
   def issue_capability(repo, attrs) do
+    case fetch_attr(attrs, :parent_capability_uid) do
+      {:ok, parent_uid} when not is_nil(parent_uid) -> issue_child_capability(repo, attrs)
+      _ -> do_issue_capability(repo, attrs)
+    end
+  end
+
+  # A child issuance reads its parent with FOR UPDATE, so the lock must be
+  # held until the child row is committed. When the caller already owns the
+  # transaction, its lock lasts for that transaction. Otherwise this opens one
+  # so the parent lock and the child insert share a transaction.
+  defp issue_child_capability(repo, attrs) do
+    if repo.in_transaction?() do
+      do_issue_capability(repo, attrs)
+    else
+      repo.transact(fn tx -> do_issue_capability(tx, attrs) end)
+    end
+  end
+
+  defp do_issue_capability(repo, attrs) do
     case fetch_attr(attrs, :company_uid) do
       {:ok, company_uid} ->
         case assert_company_exists(repo, company_uid) do
@@ -128,7 +156,7 @@ defmodule Ankole.W3.CapabilityService do
   def validate_capability(repo, company_uid, capability_uid, opts \\ []) do
     case CapabilityStore.fetch_capability(repo, company_uid, capability_uid) do
       {:ok, %Capability{status: :active} = capability} ->
-        check_validation(repo, capability, opts)
+        check_validation(repo, company_uid, capability, opts)
 
       {:ok, %Capability{status: :consumed}} -> {:error, :already_consumed}
       {:ok, %Capability{status: :expired}} -> {:error, :expired}
@@ -149,7 +177,7 @@ defmodule Ankole.W3.CapabilityService do
   def validate_capability(repo, company_uid, capability_uid, action, principal_uid, resource, risk_class, approval_uid, scope, constraints) do
     case CapabilityStore.fetch_capability(repo, company_uid, capability_uid) do
       {:ok, %Capability{status: :active} = capability} ->
-        check_validation(repo, capability, [
+        check_validation(repo, company_uid, capability, [
           action: action,
           principal_uid: principal_uid,
           resource: resource,
@@ -172,10 +200,15 @@ defmodule Ankole.W3.CapabilityService do
   @doc """
   Checks whether a child capability properly attenuates its parent per MA-06 §12.
   Returns `:ok` when no parent exists (top-level capability).
+
+  The parent is read Company-scoped with `FOR UPDATE`, so a parent whose
+  state changes concurrently cannot pass this check and then change before the
+  child is inserted. `issue_capability/2` wraps the read and the insert in one
+  transaction.
   """
   @spec check_attenuation(Ecto.Repo.t(), String.t(), map()) :: :ok | {:error, term()}
   def check_attenuation(repo, company_uid, attrs) when is_map(attrs) do
-    case Map.fetch(attrs, :parent_capability_uid) do
+    case fetch_attr(attrs, :parent_capability_uid) do
       {:ok, nil} -> :ok
       :error -> :ok
       {:ok, parent_uid} -> do_check_attenuation(repo, company_uid, attrs, parent_uid)
@@ -183,15 +216,31 @@ defmodule Ankole.W3.CapabilityService do
   end
 
   defp do_check_attenuation(repo, company_uid, attrs, parent_uid) do
-    case CapabilityStore.fetch_capability(repo, company_uid, parent_uid) do
-      {:ok, %Capability{status: :active} = parent} ->
-        check_attenuation_attrs(attrs, parent)
+    case fetch_locked_parent(repo, company_uid, parent_uid) do
+      {:ok, parent} -> check_attenuation_attrs(attrs, parent)
+      {:error, _} = error -> error
+    end
+  end
 
-      {:ok, %Capability{}} -> {:error, :parent_capability_invalid}
-      {:error, :not_found} -> {:error, :parent_capability_not_found}
-      {:error, :company_not_found} -> {:error, :parent_capability_not_found}
-      {:error, :invalid_uid} -> {:error, :parent_capability_not_found}
-      nil -> {:error, :parent_capability_not_found}
+  defp fetch_locked_parent(repo, company_uid, parent_uid) do
+    case CapabilityStore.fetch_capability_for_update(repo, company_uid, parent_uid) do
+      {:ok, %Capability{status: :active} = parent} ->
+        {:ok, parent}
+
+      {:ok, %Capability{}} ->
+        {:error, :parent_capability_invalid}
+
+      {:error, :not_found} ->
+        {:error, :parent_capability_not_found}
+
+      {:error, :company_not_found} ->
+        {:error, :parent_capability_not_found}
+
+      {:error, :invalid_uid} ->
+        {:error, :parent_capability_not_found}
+
+      nil ->
+        {:error, :parent_capability_not_found}
     end
   rescue
     ArgumentError -> {:error, :parent_capability_not_found}
@@ -227,12 +276,12 @@ defmodule Ankole.W3.CapabilityService do
     repo.update(changeset)
   end
 
-  defp check_validation(repo, %Capability{} = capability, opts) do
+  defp check_validation(repo, company_uid, %Capability{} = capability, opts) do
     with :ok <- check_principal_active(repo, capability.principal_uid),
          :ok <- check_issuer_active(repo, capability.issued_by_principal_uid),
          :ok <- check_not_expired(capability),
          :ok <- check_not_revoked(capability),
-         :ok <- check_parent_active(repo, capability.parent_capability_uid),
+         :ok <- check_ancestry(repo, company_uid, capability),
          :ok <- check_action_match(capability, opts),
          :ok <- validate_exact_binding(capability, opts) do
       :ok
@@ -304,14 +353,78 @@ defmodule Ankole.W3.CapabilityService do
   defp check_active_status(%Capability{status: :active}), do: :ok
   defp check_active_status(%Capability{} = capability), do: consume_error(capability)
 
-  defp check_parent_active(_repo, nil), do: :ok
+  # ─── parent chain ─────────────────────────────────────────────────────────
 
-  defp check_parent_active(repo, parent_uid) when is_binary(parent_uid) do
-    case repo.get_by(Capability, uid: parent_uid) do
-      %Capability{status: :active} -> :ok
-      _ -> {:error, :parent_capability_invalid}
+  # One delegation step is not enough. A grandchild's authority comes from its
+  # whole chain, so every ancestor is validated against the same operational
+  # contract as the child itself. Every hop is Company-scoped through the
+  # child's own Company, so a forged cross-Company reference fails closed.
+  defp check_ancestry(repo, company_uid, capability) do
+    check_ancestry(repo, company_uid, capability, MapSet.new([capability.uid]), 0)
+  end
+
+  defp check_ancestry(_repo, _company_uid, _capability, _visited, depth)
+       when depth > @max_parent_chain_depth do
+    {:error, :parent_chain_too_deep}
+  end
+
+  defp check_ancestry(repo, company_uid, capability, visited, depth) do
+    case capability.parent_capability_uid do
+      nil ->
+        :ok
+
+      parent_uid ->
+        cond do
+          MapSet.member?(visited, parent_uid) ->
+            {:error, :parent_capability_cycle}
+
+          true ->
+            case fetch_ancestor(repo, company_uid, parent_uid) do
+              {:ok, ancestor} ->
+                case check_ancestor_operational(repo, ancestor) do
+                  :ok ->
+                    check_ancestry(
+                      repo,
+                      company_uid,
+                      ancestor,
+                      MapSet.put(visited, parent_uid),
+                      depth + 1
+                    )
+
+                  {:error, _} = error ->
+                    error
+                end
+
+              {:error, _} = error ->
+                error
+            end
+        end
     end
   end
+
+  defp fetch_ancestor(repo, company_uid, parent_uid) do
+    case CapabilityStore.fetch_capability(repo, company_uid, parent_uid) do
+      {:ok, %Capability{} = ancestor} -> {:ok, ancestor}
+      _ -> {:error, :parent_capability_not_found}
+    end
+  rescue
+    ArgumentError -> {:error, :parent_capability_not_found}
+  end
+
+  defp check_ancestor_operational(repo, ancestor) do
+    with :ok <- check_ancestor_active(ancestor),
+         :ok <- check_not_expired(ancestor),
+         :ok <- check_not_revoked(ancestor),
+         :ok <- check_principal_active(repo, ancestor.principal_uid),
+         :ok <- check_issuer_active(repo, ancestor.issued_by_principal_uid) do
+      :ok
+    else
+      {:error, _} -> {:error, :parent_capability_invalid}
+    end
+  end
+
+  defp check_ancestor_active(%Capability{status: :active}), do: :ok
+  defp check_ancestor_active(%Capability{}), do: {:error, :parent_capability_invalid}
 
   # ─── Capability Consumption ────────────────────────────────────────────────
 
@@ -370,7 +483,7 @@ defmodule Ankole.W3.CapabilityService do
          :ok <- check_not_revoked(capability),
          :ok <- check_principal_active(repo, capability.principal_uid),
          :ok <- check_issuer_active(repo, capability.issued_by_principal_uid),
-         :ok <- check_parent_active(repo, capability.parent_capability_uid) do
+         :ok <- check_ancestry(repo, capability.company_uid, capability) do
       :ok
     end
   end
@@ -451,19 +564,84 @@ defmodule Ankole.W3.CapabilityService do
   end
 
   defp check_attenuation_attrs(attrs, parent) do
-    child_resource = fetch_attr_or_string(attrs, :resource)
-    child_action = fetch_attr_or_string(attrs, :action)
-    child_constraints = Map.get(attrs, :constraints, %{})
-    child_expires_at = Map.get(attrs, :expires_at)
-    child_scope = Map.get(attrs, :scope, %{})
+    with :ok <- check_child_principal(attrs, parent),
+         :ok <- check_child_trimmed(attrs, :action, parent.action, &String.downcase/1),
+         :ok <- check_child_trimmed(attrs, :resource, parent.resource, & &1),
+         :ok <- check_child_trimmed(attrs, :risk_class, parent.risk_class, & &1),
+         :ok <- check_child_approval(attrs, parent),
+         :ok <- check_child_map(attrs, :scope, parent.scope),
+         :ok <- check_child_map(attrs, :constraints, parent.constraints),
+         :ok <- check_child_expiry(attrs, parent) do
+      :ok
+    else
+      {:error, :attenuation_violation} -> {:error, :attenuation_violation}
+    end
+  end
 
-    cond do
-      child_resource != parent.resource -> {:error, :attenuation_violation}
-      child_action != parent.action -> {:error, :attenuation_violation}
-      !maps_are_subset(child_constraints, parent.constraints) -> {:error, :attenuation_violation}
-      not_nil_and_later(child_expires_at, parent.expires_at) -> {:error, :attenuation_violation}
-      !maps_are_subset(child_scope, parent.scope) -> {:error, :attenuation_violation}
-      true -> :ok
+  defp attenuation_violation, do: {:error, :attenuation_violation}
+
+  # Every comparison runs on the value the issuance path will persist, so a
+  # child cannot pass attenuation with one representation and be stored with
+  # another. `Capability.changeset/2` trims `:action`, `:resource`, and
+  # `:risk_class` and downcases `:action`, so the same normalization is applied
+  # before comparing against the already-persisted parent.
+  defp check_child_trimmed(attrs, key, parent_value, transform) do
+    case fetch_attr(attrs, key) do
+      {:ok, value} when is_binary(value) ->
+        if parent_value == value |> String.trim() |> transform.() do
+          :ok
+        else
+          attenuation_violation()
+        end
+
+      _ ->
+        attenuation_violation()
+    end
+  end
+
+  defp check_child_principal(attrs, parent) do
+    with {:ok, raw} <- fetch_attr(attrs, :principal_uid),
+         {:ok, normalized} <- PrincipalKey.normalize(raw) do
+      if parent.principal_uid == normalized, do: :ok, else: attenuation_violation()
+    else
+      {:error, _} -> attenuation_violation()
+    end
+  end
+
+  # An absent `approval_uid` is persisted as nil, so an absent child approval
+  # must equal a nil parent approval and differ from a parent that carries one.
+  defp check_child_approval(attrs, parent) do
+    case fetch_attr(attrs, :approval_uid) do
+      {:ok, value} -> if value == parent.approval_uid, do: :ok, else: attenuation_violation()
+      :error -> if is_nil(parent.approval_uid), do: :ok, else: attenuation_violation()
+    end
+  end
+
+  # An absent `scope` or `constraints` is persisted as an empty map, so that
+  # empty map is the value compared against the parent's.
+  defp check_child_map(attrs, key, parent_value) do
+    value =
+      case fetch_attr(attrs, key) do
+        {:ok, given} -> given
+        :error -> %{}
+      end
+
+    if value == parent_value, do: :ok, else: attenuation_violation()
+  end
+
+  # `expires_at` nil means unbounded lifetime, so a child of a bounded parent
+  # may not leave its expiry open.
+  defp check_child_expiry(attrs, parent) do
+    child =
+      case fetch_attr(attrs, :expires_at) do
+        {:ok, value} -> value
+        :error -> nil
+      end
+
+    case {parent.expires_at, child} do
+      {nil, _} -> :ok
+      {_, nil} -> attenuation_violation()
+      {parent_expiry, child_expiry} -> if DateTime.compare(child_expiry, parent_expiry) == :gt, do: attenuation_violation(), else: :ok
     end
   end
 
@@ -502,29 +680,6 @@ defmodule Ankole.W3.CapabilityService do
     case repo.get_by(Capability, uid: uid) do
       nil -> :ok
       %Capability{} -> {:error, {:duplicate, :uid}}
-    end
-  end
-
-  defp maps_are_subset(subset, superset) do
-    case {subset, superset} do
-      {nil, _} -> true
-      {_, nil} -> true
-      {s, sp} when is_map(s) and is_map(sp) -> subset_keys_in_superset?(s, sp)
-      _ -> true
-    end
-  end
-
-  defp subset_keys_in_superset?(subset, superset) do
-    subset
-    |> Map.keys()
-    |> Enum.all?(fn key -> Map.has_key?(superset, key) end)
-  end
-
-  defp not_nil_and_later(a, b) do
-    case {a, b} do
-      {nil, _} -> false
-      {_, nil} -> false
-      {aa, bb} -> DateTime.compare(aa, bb) == :gt
     end
   end
 
