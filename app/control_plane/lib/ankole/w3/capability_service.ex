@@ -17,6 +17,7 @@ defmodule Ankole.W3.CapabilityService do
   alias Ankole.Principals.Principal
   alias Ankole.W3.Capability
   alias Ankole.W3.CapabilityStore
+  alias Ankole.W3.Resource
 
   # ─── public API ──────────────────────────────────────────────────────────
 
@@ -140,6 +141,35 @@ defmodule Ankole.W3.CapabilityService do
   end
 
   @doc """
+  Validates exact binding between a Capability and explicit intent.
+  Called from ActionAssurance with all required parameters.
+  """
+  @spec validate_capability(Ecto.Repo.t(), String.t(), String.t(), String.t(), String.t(), String.t(), String.t(), String.t(), map(), map()) ::
+          :ok | {:error, atom()}
+  def validate_capability(repo, company_uid, capability_uid, action, principal_uid, resource, risk_class, approval_uid, scope, constraints) do
+    case CapabilityStore.fetch_capability(repo, company_uid, capability_uid) do
+      {:ok, %Capability{status: :active} = capability} ->
+        check_validation(repo, capability, [
+          action: action,
+          principal_uid: principal_uid,
+          resource: resource,
+          risk_class: risk_class,
+          approval_uid: approval_uid,
+          scope: scope,
+          constraints: constraints
+        ])
+
+      {:ok, %Capability{status: :consumed}} -> {:error, :already_consumed}
+      {:ok, %Capability{status: :expired}} -> {:error, :expired}
+      {:ok, %Capability{status: :revoked}} -> {:error, :revoked}
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, :company_not_found} -> {:error, :not_found}
+      {:error, :invalid_uid} -> {:error, :not_found}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc """
   Checks whether a child capability properly attenuates its parent per MA-06 §12.
   Returns `:ok` when no parent exists (top-level capability).
   """
@@ -203,7 +233,39 @@ defmodule Ankole.W3.CapabilityService do
          :ok <- check_not_expired(capability),
          :ok <- check_not_revoked(capability),
          :ok <- check_parent_active(repo, capability.parent_capability_uid),
-         :ok <- check_action_match(capability, opts) do
+         :ok <- check_action_match(capability, opts),
+         :ok <- validate_exact_binding(capability, opts) do
+      :ok
+    end
+  end
+
+  # ─── Public exact-binding validator ─────────────────────────────────────────
+
+  @doc """
+  Validates exact binding between a fetched Capability struct and expected intent.
+
+  Pure function: no DB access, no locks, no mutations. Safe to call against
+  an already-fetched, eventually locked Capability struct.
+
+  Expected keys:
+  - :principal_uid (binary, normalized)
+  - :action (binary, lowercased)
+  - :resource (binary, exact canonical)
+  - :risk_class (binary)
+  - :approval_uid (binary or nil)
+  - :scope (map)
+  - :constraints (map)
+
+  Returns :ok or {:error, reason}.
+  """
+  def validate_exact_binding(capability, expected) do
+    with :ok <- check_principal_match(capability, expected),
+         :ok <- check_action_match(capability, expected),
+         :ok <- check_resource_match(capability, expected),
+         :ok <- check_risk_class_match(capability, expected),
+         :ok <- check_approval_linkage(capability, expected),
+         :ok <- check_scope_match(capability, expected),
+         :ok <- check_constraints_match(capability, expected) do
       :ok
     end
   end
@@ -243,11 +305,78 @@ defmodule Ankole.W3.CapabilityService do
     end
   end
 
-  defp check_action_match(capability, opts) do
-    case Keyword.get(opts, :action) do
-      nil -> :ok
-      requested when requested == capability.action -> :ok
-      _ -> {:error, :action_mismatch}
+  
+
+  defp check_principal_match(capability, expected) do
+    expected_principal = Keyword.get(expected, :principal_uid)
+    if is_nil(expected_principal) do
+      :ok
+    else
+      with {:ok, norm} <- PrincipalKey.normalize(expected_principal) do
+        if capability.principal_uid == norm, do: :ok, else: {:error, :principal_mismatch}
+      end
+    end
+  end
+
+  defp check_action_match(capability, expected) do
+    expected_action = Keyword.get(expected, :action)
+    if is_nil(expected_action) do
+      :ok
+    else
+      norm_expected = String.downcase(String.trim(expected_action))
+      if capability.action == norm_expected, do: :ok, else: {:error, :action_mismatch}
+    end
+  end
+
+  defp check_resource_match(capability, expected) do
+    expected_resource = Keyword.get(expected, :resource)
+    if is_nil(expected_resource) do
+      :ok
+    else
+      # Validate exact resource: must pass normalize_exact/1 and match byte-for-byte
+      case Resource.normalize_exact(expected_resource) do
+        {:ok, normalized} ->
+          if capability.resource == normalized, do: :ok, else: {:error, :resource_mismatch}
+        {:error, _} ->
+          {:error, :resource_mismatch}
+      end
+    end
+  end
+
+  defp check_risk_class_match(capability, expected) do
+    expected_risk = Keyword.get(expected, :risk_class)
+    if is_nil(expected_risk) do
+      :ok
+    else
+      if capability.risk_class == expected_risk, do: :ok, else: {:error, :risk_class_mismatch}
+    end
+  end
+
+  defp check_approval_linkage(capability, expected) do
+    expected_approval = Keyword.get(expected, :approval_uid)
+    case expected_approval do
+      nil ->
+        if is_nil(capability.approval_uid), do: :ok, else: {:error, :approval_mismatch}
+      _ ->
+        if capability.approval_uid == expected_approval, do: :ok, else: {:error, :approval_mismatch}
+    end
+  end
+
+  defp check_scope_match(capability, expected) do
+    expected_scope = Keyword.get(expected, :scope)
+    if is_nil(expected_scope) do
+      :ok
+    else
+      if capability.scope == expected_scope, do: :ok, else: {:error, :scope_mismatch}
+    end
+  end
+
+  defp check_constraints_match(capability, expected) do
+    expected_constraints = Keyword.get(expected, :constraints)
+    if is_nil(expected_constraints) do
+      :ok
+    else
+      if capability.constraints == expected_constraints, do: :ok, else: {:error, :constraints_mismatch}
     end
   end
 

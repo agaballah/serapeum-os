@@ -17,7 +17,9 @@ defmodule Ankole.W3.ActionAssuranceTest do
   alias Ankole.W3.ActionReceipt
   alias Ankole.W3.AuthZ, as: W3AuthZ
   alias Ankole.W3.Capability
+  alias Ankole.W3.CapabilityService
   alias Ankole.W3.ApprovalStore
+  alias Ankole.W3.Resource
   alias Ankole.W3.RiskClassifier
   alias Ankole.W3.ActionAssurance
 
@@ -893,6 +895,324 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert insert_count == 1
       assert String.contains?(source, "defp save_receipt")
       assert String.contains?(source, "def finalize_assurance")
+    end
+  end
+
+  # ─── B-4: exact binding through the full assurance chain ───────────────────
+
+  describe "assure/6 — B4 exact binding integration" do
+    setup do
+      suffix = System.unique_integer([:positive])
+      %{principal: owner} = human_fixture(uid: "b4-a-owner-#{suffix}")
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "b4-a-holder-#{suffix}")
+      %{principal: issuer} = human_fixture(uid: "b4-a-issuer-#{suffix}")
+      %{principal: approver} = human_fixture(uid: "b4-a-approver-#{suffix}")
+
+      for principal <- [owner, holder, issuer, approver] do
+        assert {:ok, _m} = MembershipStore.add_member(Repo, company.uid, principal.uid)
+      end
+
+      # Canonical resources come only from Resource.build/3.
+      {:ok, task_resource} = Resource.build("transition_task", company.uid, %{task_uid: "task-b4"})
+
+      grant_fixture(holder.uid, company.uid, "#{task_resource}", "transition_task")
+
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: task_resource
+      }
+    end
+
+    defp b4_capability(company, holder, issuer, attrs) do
+      capability_fixture(company.uid, holder.uid, issuer.uid, attrs)
+    end
+
+    defp b4_approval(company, requester, approver, attrs) do
+      {:ok, approval} =
+        ApprovalStore.create_approval(Repo, Map.merge(attrs, %{requester_uid: requester.uid}))
+
+      {:ok, _approved} = ApprovalStore.approve_approval(Repo, company.uid, approval.uid, approver.uid)
+      approval
+    end
+
+    # A — transition to IN_PROGRESS recomputes CONTROLLED
+    test "B4-A transition to IN_PROGRESS recomputes CONTROLLED", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED"
+        })
+
+      assert {:ok, ctx} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "IN_PROGRESS"}
+               )
+
+      assert ctx.risk_class == "CONTROLLED"
+    end
+
+    # B — transition to COMPLETED recomputes HIGH-IMPACT
+    test "B4-B transition to COMPLETED recomputes HIGH-IMPACT", context do
+      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+
+      approval =
+        b4_approval(company, holder, approver, %{
+          uid: "b4-B-appr-#{System.unique_integer([:positive])}",
+          company_uid: company.uid,
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT"
+        })
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT",
+          approval_uid: approval.uid
+        })
+
+      assert {:ok, ctx} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "COMPLETED"},
+                 approval_uid: approval.uid
+               )
+
+      assert ctx.risk_class == "HIGH-IMPACT"
+    end
+
+    # C — HIGH-IMPACT without Approval rejected
+    test "B4-C HIGH-IMPACT without Approval rejected", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT"
+        })
+
+      assert {:error, :approval_required} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "COMPLETED"}
+               )
+    end
+
+    # D — Capability approval_uid != supplied approval_uid rejected
+    test "B4-D Capability approval_uid differs from supplied approval_uid rejected", context do
+      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+
+      supplied =
+        b4_approval(company, holder, approver, %{
+          uid: "b4-D-supplied-#{System.unique_integer([:positive])}",
+          company_uid: company.uid,
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT"
+        })
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT",
+          approval_uid: "b4-D-other-approval"
+        })
+
+      assert {:error, :capability_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "COMPLETED"},
+                 approval_uid: supplied.uid
+               )
+    end
+
+    # E — Approval action mismatch rejected
+    test "B4-E Approval action mismatch rejected", context do
+      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+
+      approval =
+        b4_approval(company, holder, approver, %{
+          uid: "b4-E-appr-#{System.unique_integer([:positive])}",
+          company_uid: company.uid,
+          action: "cancel_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT"
+        })
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT",
+          approval_uid: approval.uid
+        })
+
+      assert {:error, :approval_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "COMPLETED"},
+                 approval_uid: approval.uid
+               )
+    end
+
+    # F — Approval resource mismatch rejected
+    test "B4-F Approval resource mismatch rejected", context do
+      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+
+      approval =
+        b4_approval(company, holder, approver, %{
+          uid: "b4-F-appr-#{System.unique_integer([:positive])}",
+          company_uid: company.uid,
+          action: "transition_task",
+          resource: "w2:v1/company/#{company.uid}/tasks/task-other",
+          risk_class: "HIGH-IMPACT"
+        })
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT",
+          approval_uid: approval.uid
+        })
+
+      assert {:error, :approval_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "COMPLETED"},
+                 approval_uid: approval.uid
+               )
+    end
+
+    # G — Approval requester mismatch rejected
+    test "B4-G Approval requester mismatch rejected", context do
+      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+      %{principal: other_requester} = human_fixture(uid: "b4-g-other-#{System.unique_integer([:positive])}")
+      assert {:ok, _m} = MembershipStore.add_member(Repo, company.uid, other_requester.uid)
+
+      approval =
+        b4_approval(company, other_requester, approver, %{
+          uid: "b4-G-appr-#{System.unique_integer([:positive])}",
+          company_uid: company.uid,
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT"
+        })
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT",
+          approval_uid: approval.uid
+        })
+
+      assert {:error, :approval_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "COMPLETED"},
+                 approval_uid: approval.uid
+               )
+    end
+
+    # H — Approval RISK mismatch rejected (Catalog HIGH / Capability HIGH / Approval CONTROLLED)
+    test "B4-H Approval risk mismatch rejected when catalog and Capability are HIGH-IMPACT", context do
+      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+
+      # Catalog risk for transition_task to COMPLETED is HIGH-IMPACT.
+      assert {:ok, "HIGH-IMPACT"} =
+               RiskClassifier.classify("transition_task", resource, %{to_status: "COMPLETED"})
+
+      # The Approval deliberately records a different risk class.
+      approval =
+        b4_approval(company, holder, approver, %{
+          uid: "b4-H-appr-#{System.unique_integer([:positive])}",
+          company_uid: company.uid,
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED"
+        })
+
+      # Capability risk matches the catalog, so binding must reach the Approval check.
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "HIGH-IMPACT",
+          approval_uid: approval.uid
+        })
+
+      # Prove the Capability risk itself is not the cause of the rejection.
+      assert :ok =
+               CapabilityService.validate_exact_binding(cap,
+                 principal_uid: holder.uid,
+                 action: "transition_task",
+                 resource: resource,
+                 risk_class: "HIGH-IMPACT",
+                 approval_uid: approval.uid,
+                 scope: %{},
+                 constraints: %{}
+               )
+
+      # Prove the Approval risk check is exactly what rejects.
+      assert {:error, :approval_risk_class_mismatch} =
+               ApprovalStore.validate_for_assurance(
+                 Repo,
+                 company.uid,
+                 approval.uid,
+                 holder.uid,
+                 "transition_task",
+                 resource,
+                 "HIGH-IMPACT"
+               )
+
+      assert {:error, :approval_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "COMPLETED"},
+                 approval_uid: approval.uid
+               )
+    end
+
+    # I — scope mismatch through ActionAssurance rejected
+    test "B4-I scope mismatch rejected", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          scope: %{"task_uid" => "task-b4"}
+        })
+
+      assert {:error, :capability_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 scope: %{"task_uid" => "task-somewhere-else"}
+               )
+    end
+
+    # J — constraints mismatch through ActionAssurance rejected
+    test "B4-J constraints mismatch rejected", context do
+      %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
+
+      cap =
+        b4_capability(company, holder, issuer, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          constraints: %{"max_duration" => 3600}
+        })
+
+      assert {:error, :capability_invalid} =
+               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+                 risk_context: %{to_status: "READY"},
+                 constraints: %{"max_duration" => 60}
+               )
     end
   end
 end

@@ -205,7 +205,7 @@ defmodule Ankole.W3.ApprovalStore do
     end)
   end
 
-  @doc """
+@doc """
   Validates an Approval for use in Action Assurance.
 
   This is the function P5 calls via `check_approval_independence` to verify
@@ -221,17 +221,19 @@ defmodule Ankole.W3.ApprovalStore do
   - The approval was not self-approved (approver ≠ requester)
   - The approval's action matches the proposed action (when provided)
   - The approval's resource matches the proposed resource (when provided)
+  - The approval's risk class matches the recomputed risk class (when provided)
   """
-  @spec validate_for_assurance(Ecto.Repo.t(), String.t(), String.t(), String.t(), String.t() | nil, String.t() | nil) ::
-           :ok | {:error, atom()}
-  def validate_for_assurance(repo, company_uid, approval_uid, requester_uid, action \\ nil, resource \\ nil) do
+  @spec validate_for_assurance(Ecto.Repo.t(), String.t(), String.t(), String.t(), String.t() | nil, String.t() | nil, String.t() | nil) ::
+          :ok | {:error, atom()}
+  def validate_for_assurance(repo, company_uid, approval_uid, requester_uid, action \\ nil, resource \\ nil, expected_risk_class \\ nil) do
     with {:ok, approval} <- fetch_approval(repo, company_uid, approval_uid),
          :ok <- check_approved(approval),
          :ok <- check_not_expired(approval),
          :ok <- check_not_revoked(approval),
          :ok <- check_requester_matches(approval, requester_uid),
          :ok <- check_action_match(approval, action),
-         :ok <- check_resource_match(approval, resource) do
+         :ok <- check_resource_match(approval, resource),
+         :ok <- check_risk_class_match(approval, expected_risk_class) do
       :ok
     else
       {:error, :not_found} -> {:error, :approval_not_found}
@@ -241,6 +243,7 @@ defmodule Ankole.W3.ApprovalStore do
       {:error, :requester_mismatch} -> {:error, :approval_requester_mismatch}
       {:error, :action_mismatch} -> {:error, :approval_action_mismatch}
       {:error, :resource_mismatch} -> {:error, :approval_resource_mismatch}
+      {:error, :risk_class_mismatch} -> {:error, :approval_risk_class_mismatch}
     end
   end
 
@@ -344,6 +347,15 @@ defmodule Ankole.W3.ApprovalStore do
   defp check_resource_match(_approval, nil), do: :ok
   defp check_resource_match(%Approval{resource: resource}, resource), do: :ok
   defp check_resource_match(_, _), do: {:error, :resource_mismatch}
+
+  defp check_risk_class_match(_approval, nil), do: :ok
+  defp check_risk_class_match(%Approval{risk_class: risk_class}, expected_risk) do
+    if risk_class == expected_risk do
+      :ok
+    else
+      {:error, :risk_class_mismatch}
+    end
+  end
 
   defp fetch_attr(attrs, key) do
     case Map.fetch(attrs, key) do

@@ -31,6 +31,7 @@ defmodule Ankole.W3.ActionAssurance do
   alias Ankole.W3.ApprovalStore
   alias Ankole.W3.AuthZ, as: W3AuthZ
   alias Ankole.W3.CapabilityService
+  alias Ankole.W3.Resource
   alias Ankole.W3.RiskClassifier
 
   # ─── public API ──────────────────────────────────────────────────────────
@@ -64,18 +65,22 @@ defmodule Ankole.W3.ActionAssurance do
           String.t() | nil,
           keyword()
         ) :: {:ok, map()} | {:error, atom()}
-  def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\ nil, opts \\ []) do
+def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\ nil, opts \\ []) do
     approval_uid = Keyword.get(opts, :approval_uid)
     postcondition_expected = Keyword.get(opts, :postcondition_expected, %{})
+    scope = Keyword.get(opts, :scope, %{})
+    constraints = Keyword.get(opts, :constraints, %{})
+    risk_context = Keyword.get(opts, :risk_context, %{})
 
     with {:ok, normalized_action} <- normalize_action(action),
          {:ok, normalized_resource} <- normalize_resource(resource),
-         {:ok, risk_class} <- classify_risk(normalized_action, normalized_resource),
+         :ok <- check_resource_exact(normalized_resource),
+         {:ok, risk_class} <- classify_risk(normalized_action, normalized_resource, risk_context),
          :ok <- check_not_prohibited(risk_class),
          :ok <- check_authz(repo, company_uid, principal_uid, normalized_action, normalized_resource),
-         :ok <- check_capability(repo, company_uid, capability_uid, normalized_action),
+         :ok <- check_capability(repo, company_uid, capability_uid, normalized_action, principal_uid, normalized_resource, risk_class, approval_uid, scope, constraints),
          :ok <- check_approval_requirement(risk_class, approval_uid),
-          :ok <- check_approval_independence(repo, company_uid, approval_uid, principal_uid, normalized_action, normalized_resource),
+         :ok <- check_approval_independence(repo, company_uid, approval_uid, principal_uid, normalized_action, normalized_resource, risk_class),
          {:ok, receipt_uid} <- generate_receipt_uid() do
       {:ok, %{
         receipt_uid: receipt_uid,
@@ -161,10 +166,19 @@ defmodule Ankole.W3.ActionAssurance do
     end
   end
 
-  defp classify_risk(action, resource) do
-    case RiskClassifier.classify(action, resource) do
+  defp classify_risk(action, resource, context) do
+    case RiskClassifier.classify(action, resource, context) do
       {:ok, class} -> {:ok, class}
       {:error, :unknown_action} -> {:error, :unknown_action}
+    end
+  end
+
+  defp check_resource_exact(resource) do
+    case Resource.normalize_exact(resource) do
+      {:ok, normalized} ->
+        if normalized == resource, do: :ok, else: {:error, :invalid_resource}
+      {:error, _} ->
+        {:error, :invalid_resource}
     end
   end
 
@@ -178,10 +192,10 @@ defmodule Ankole.W3.ActionAssurance do
     end
   end
 
-  defp check_capability(_repo, _company_uid, nil, _action), do: :ok
+  defp check_capability(_repo, _company_uid, nil, _action, _principal, _resource, _risk, _approval, _scope, _constraints), do: :ok
 
-  defp check_capability(repo, company_uid, capability_uid, action) do
-    case CapabilityService.validate_capability(repo, company_uid, capability_uid, action: action) do
+  defp check_capability(repo, company_uid, capability_uid, action, principal_uid, resource, risk_class, approval_uid, scope, constraints) do
+    case CapabilityService.validate_capability(repo, company_uid, capability_uid, action: action, principal_uid: principal_uid, resource: resource, risk_class: risk_class, approval_uid: approval_uid, scope: scope, constraints: constraints) do
       :ok -> :ok
       {:error, _} -> {:error, :capability_invalid}
     end
@@ -198,10 +212,10 @@ defmodule Ankole.W3.ActionAssurance do
   defp requires_approval?("HIGH-IMPACT"), do: true
   defp requires_approval?(_), do: false
 
-  defp check_approval_independence(_repo, _company_uid, nil, _principal_uid, _action, _resource), do: :ok
+  defp check_approval_independence(_repo, _company_uid, nil, _principal_uid, _action, _resource, _risk), do: :ok
 
-  defp check_approval_independence(repo, company_uid, approval_uid, principal_uid, action, resource) do
-    case ApprovalStore.validate_for_assurance(repo, company_uid, approval_uid, principal_uid, action, resource) do
+  defp check_approval_independence(repo, company_uid, approval_uid, principal_uid, action, resource, risk_class) do
+    case ApprovalStore.validate_for_assurance(repo, company_uid, approval_uid, principal_uid, action, resource, risk_class) do
       :ok -> :ok
       {:error, _} -> {:error, :approval_invalid}
     end

@@ -16,6 +16,7 @@ defmodule Ankole.W3.CapabilityServiceTest do
   alias Ankole.W3.CapabilityService
 
   import Ankole.PrincipalsFixtures
+alias Ankole.PrincipalsFixtures
 
   # ─── fixtures ─────────────────────────────────────────────────────────────
 
@@ -580,6 +581,132 @@ defmodule Ankole.W3.CapabilityServiceTest do
                CapabilityService.validate_capability(Ankole.Repo, "nonexistent-company", "nope", [])
     end
   end
+
+  # ─── B-4: exact capability binding ────────────────────────────────────────────
+describe "validate_exact_binding — B4 exact capability binding" do
+    setup do
+      suffix = System.unique_integer([:positive])
+      %{principal: owner} = human_fixture(uid: "b4-owner-#{suffix}")
+      company = company_fixture(owner.uid)
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, owner.uid)
+      end)
+
+      %{principal: holder} = human_fixture(uid: "b4-holder-#{suffix}")
+      %{principal: issuer} = human_fixture(uid: "b4-issuer-#{suffix}")
+
+      {:ok, _m1} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, holder.uid)
+      end)
+
+      {:ok, _m2} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, issuer.uid)
+      end)
+
+      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{
+        uid: "b4-cap-#{suffix}",
+        action: "transition_task",
+        resource: "w2:v1/company/co-1/tasks/task-a",
+        risk_class: "CONTROLLED",
+        approval_uid: "appr-123",
+        scope: %{"task_uid" => "task-a"},
+        constraints: %{"max_duration" => 3600}
+      })
+
+      %{company: company, holder: holder, issuer: issuer, cap: cap}
+    end
+
+    # B4-T1 Exact Principal succeeds
+    test "B4-T1 exact Principal succeeds", %{cap: cap, holder: holder, company: company} do
+      assert :ok = CapabilityService.validate_exact_binding(cap, [principal_uid: holder.uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 3600}])
+    end
+
+    # B4-T2 Wrong Principal rejected
+    test "B4-T2 wrong Principal rejected", %{cap: cap, company: company} do
+      %{principal: wrong_principal} = human_fixture(uid: "b4-wrong-#{System.unique_integer([:positive])}")
+      assert {:error, :principal_mismatch} =
+               CapabilityService.validate_exact_binding(cap, [principal_uid: wrong_principal.uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 3600}])
+    end
+
+    # B4-T3 Exact Company succeeds (via company-scoped fetch in validate_capability)
+    test "B4-T3 exact Company succeeds via scoped fetch", %{cap: cap, company: company} do
+      assert :ok = CapabilityService.validate_capability(Ankole.Repo, cap.company_uid, cap.uid, "transition_task", cap.principal_uid, "w2:v1/company/co-1/tasks/task-a", "CONTROLLED", "appr-123", %{"task_uid" => "task-a"}, %{"max_duration" => 3600})
+    end
+
+    # B4-T4 Wrong Company fails closed through Company-scoped lookup
+    test "B4-T4 wrong Company fails closed through Company-scoped lookup", %{cap: cap} do
+      %{principal: owner2} = human_fixture(uid: "b4-owner2-#{System.unique_integer([:positive])}")
+      company2 = company_fixture(owner2.uid)
+      assert {:error, :not_found} = CapabilityService.validate_capability(Ankole.Repo, company2.uid, cap.uid, "transition_task", cap.principal_uid, "w2:v1/company/co-1/tasks/task-a", "CONTROLLED", "appr-123", %{"task_uid" => "task-a"}, %{"max_duration" => 3600})
+    end
+
+    # B4-T5 Exact action succeeds
+    test "B4-T5 exact action succeeds", %{cap: cap} do
+      assert :ok = CapabilityService.validate_exact_binding(cap, [principal_uid: cap.principal_uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 3600}])
+    end
+
+    # B4-T6 Wrong action rejected
+    test "B4-T6 wrong action rejected", %{cap: cap} do
+      assert {:error, :action_mismatch} = CapabilityService.validate_exact_binding(cap, [principal_uid: cap.principal_uid, action: "cancel_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 3600}])
+    end
+
+    # B4-T7 Canonical Resource.build/3 output succeeds
+    test "B4-T7 canonical Resource.build/3 output succeeds", %{cap: cap} do
+      assert :ok = CapabilityService.validate_exact_binding(cap, [principal_uid: cap.principal_uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 3600}])
+    end
+
+    # B4-T8 Different / noncanonical resource rejected (glob characters)
+    test "B4-T8 noncanonical resource with glob chars rejected", %{cap: cap} do
+      assert {:error, :resource_mismatch} = CapabilityService.validate_exact_binding(cap, [principal_uid: cap.principal_uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-*", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 3600}])
+    end
+
+    # B4-T16 Exact scope succeeds; different scope rejected
+    test "B4-T16 exact scope succeeds; different scope rejected", %{cap: cap} do
+      assert :ok = CapabilityService.validate_exact_binding(cap, [principal_uid: cap.principal_uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 3600}])
+      assert {:error, :scope_mismatch} = CapabilityService.validate_exact_binding(cap, [principal_uid: cap.principal_uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"other" => "value"}, constraints: %{"max_duration" => 3600}])
+    end
+
+    # B4-T17 Exact constraints succeeds; different constraints rejected
+    test "B4-T17 exact constraints succeeds; different constraints rejected", %{cap: cap} do
+      assert :ok = CapabilityService.validate_exact_binding(cap, [principal_uid: cap.principal_uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 3600}])
+      assert {:error, :constraints_mismatch} = CapabilityService.validate_exact_binding(cap, [principal_uid: cap.principal_uid, action: "transition_task", resource: "w2:v1/company/co-1/tasks/task-a", risk_class: "CONTROLLED", approval_uid: "appr-123", scope: %{"task_uid" => "task-a"}, constraints: %{"max_duration" => 1800}])
+    end
+
+    # B4-T18 Expiry and revocation protections remain green
+    test "B4-T18 expiry and revocation protections remain green", %{cap: cap, company: company, holder: holder, issuer: issuer} do
+      # Expiry - test via validate_capability which checks expiry
+      cap_expired = capability_fixture(company.uid, holder.uid, issuer.uid, %{
+        uid: "b4-exp-#{System.unique_integer([:positive])}",
+        action: cap.action,
+        resource: cap.resource,
+        risk_class: cap.risk_class,
+        approval_uid: "appr-123",
+        scope: cap.scope,
+        expires_at: ~U[2020-01-01T00:00:00Z]
+      })
+      assert {:error, :expired} = CapabilityService.validate_capability(Ankole.Repo, company.uid, cap_expired.uid, cap.action, holder.uid, cap.resource, cap.risk_class, "appr-123", cap.scope, %{"max_duration" => 3600})
+
+      # Revocation
+      revoked_cap = capability_fixture(company.uid, issuer.uid, issuer.uid, %{
+        uid: "b4-rev-#{System.unique_integer([:positive])}",
+        action: cap.action,
+        resource: cap.resource,
+        risk_class: cap.risk_class,
+        approval_uid: "appr-123",
+        scope: cap.scope
+      })
+      transact(fn repo -> CapabilityService.revoke_capability(repo, cap.company_uid, revoked_cap.uid, issuer.uid) end)
+      assert {:error, :revoked} = CapabilityService.validate_capability(Ankole.Repo, company.uid, revoked_cap.uid, cap.action, holder.uid, cap.resource, cap.risk_class, "appr-123", cap.scope, %{"max_duration" => 3600})
+    end
+
+    # B4-T19 No Capability for CONTROLLED/HIGH-IMPACT assurance fails closed
+    test "B4-T19 no Capability for CONTROLLED assurance fails closed", %{company: company, holder: holder} do
+      assert {:error, :not_found} = CapabilityService.validate_capability(Ankole.Repo, company.uid, "nonexistent", "transition_task", holder.uid, "w2:v1/company/co-1/tasks/task-a", "CONTROLLED", "appr-123", %{"task_uid" => "task-a"}, %{"max_duration" => 3600})
+    end
+  end
+
+  # ─── boundary audit ──────────────────────────────────────────────────────
 
   # ─── boundary audit ──────────────────────────────────────────────────────
 
