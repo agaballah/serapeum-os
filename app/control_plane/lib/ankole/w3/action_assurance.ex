@@ -39,10 +39,16 @@ defmodule Ankole.W3.ActionAssurance do
   cannot hand-build a context and assert a decision, an Approval, or an
   outcome the system never made.
 
-  Fields no stage establishes stay `nil`. `precondition_status` and
-  `approval_independent` are `nil` unless a real check produced them, and the
-  execution-stage fields remain the finalizer's assertion until B-7 supplies
-  an observed value.
+  Fields no stage establishes stay `nil`. `precondition_status`,
+  `approval_independent`, and `postcondition_verified` are `nil` unless a real
+  check produced them, and `execution_failed` is `nil` because the bounded
+  finalization API receives no trustworthy execution outcome.
+
+  An empty `postcondition_expected` records that no postcondition was
+  declared. It is never treated as a satisfied one. A non-empty value has no
+  interpretation here, because this repository defines no postcondition
+  predicate language, so it fails closed instead of being evaluated by an
+  invented rule.
 
   Decision outcomes from `assure/6`:
   - `{:ok, assurance_context}` — chain passed; caller proceeds to broker
@@ -185,19 +191,26 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
   nothing, so a caller cannot assert an AuthZ decision, an Approval, or a
   Capability that no assurance produced.
 
-  `verified?` and `result_output` remain the caller's assertion until B-7
-  supplies values observed from a real broker. This function records them as
-  given and timestamps `verified_at` only when `verified?` is true.
+  `verified?` is retained for signature compatibility but is not authoritative
+  evidence. It cannot establish `postcondition_verified`, and it cannot
+  establish `execution_failed`. The verification fact is derived from
+  `postcondition_expected` alone: an empty `postcondition_expected` means no
+  postcondition was declared, so the receipt records `nil` rather than `true`.
+
+  No postcondition predicate language exists in this repository, so a non-empty
+  `postcondition_expected` has no interpretation and fails closed with
+  `{:error, :unsupported_postcondition}` without inserting a receipt.
 
   Returns `{:ok, receipt}` on success. On failure it returns a typed reason:
   `:invalid_assurance_context`, `{:missing_context_field, field}`,
-  `:unverified_assurance_context`, `:receipt_uid_conflict`,
-  `:receipt_reference_invalid`, or `{:receipt_invalid, errors}`.
+  `:unverified_assurance_context`, `:unsupported_postcondition`,
+  `:receipt_uid_conflict`, `:receipt_reference_invalid`, or
+  `{:receipt_invalid, errors}`.
   """
   @spec finalize_assurance(Ecto.Repo.t(), map(), boolean(), map()) ::
           {:ok, ActionReceipt.t()} | {:error, term()}
-  def finalize_assurance(repo, assurance_context, verified?, result_output \\ %{}) do
-    with {:ok, attrs} <- build_receipt_attrs(assurance_context, verified?, result_output),
+  def finalize_assurance(repo, assurance_context, _verified?, result_output \\ %{}) do
+    with {:ok, attrs} <- build_receipt_attrs(assurance_context, result_output),
          {:ok, receipt} <- save_receipt(repo, attrs) do
       {:ok, receipt}
     end
@@ -330,26 +343,64 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
   # Safe access: a malformed or hand-built context returns a typed error
   # instead of raising. A missing field is a claim the caller cannot make, and
   # it fails closed.
-  defp build_receipt_attrs(context, verified?, result_output) when is_map(context) do
+  defp build_receipt_attrs(context, result_output) when is_map(context) do
     with {:ok, attrs} <- required_attrs(context),
-         true <- context_sealed?(context) do
-      {:ok,
-       Map.merge(attrs, %{
-         broker_name: Map.get(context, :broker_name),
-         postcondition_verified: verified?,
-         # `verified_at` must timestamp an observed verification. Claiming a
-         # verification time while recording failure would misdate the event.
-         verified_at: if(verified?, do: DateTime.utc_now(), else: nil),
-         result_output: result_output,
-         execution_failed: !verified?
-       })}
+         true <- context_sealed?(context),
+         {:ok, verdict} <- evaluate_postcondition(context.postcondition_expected) do
+      execution =
+        verdict
+        |> execution_attrs(result_output)
+        |> Map.put(:broker_name, Map.get(context, :broker_name))
+
+      {:ok, Map.merge(attrs, execution)}
     else
       false -> {:error, :unverified_assurance_context}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp build_receipt_attrs(_context, _verified?, _result_output), do: {:error, :invalid_assurance_context}
+  defp build_receipt_attrs(_context, _result_output), do: {:error, :invalid_assurance_context}
+
+  # The only verdict this repository can produce is "not evaluated", because it
+  # defines no postcondition predicate language. So `postcondition_verified` is
+  # unknown, `verified_at` is never set, and `execution_failed` stays unknown:
+  # absence of verification is not evidence that the action failed.
+  #
+  # A future recognised condition would add its own verdict here. Until one
+  # exists, no receipt claims a proven postcondition.
+  defp execution_attrs(:not_evaluated, result_output) do
+    %{
+      postcondition_verified: nil,
+      verified_at: nil,
+      result_output: result_output,
+      execution_failed: nil
+    }
+  end
+
+  # Bounded postcondition evaluation.
+  #
+  # This repository defines no postcondition predicate language, so it cannot
+  # prove any expected post-state. Rather than invent a comparison — which
+  # would fabricate a verification contract the system never defined — it
+  # recognises only the one representation it can interpret: an empty map,
+  # meaning the caller declared no postcondition at all.
+  #
+  # That case is reported as `:not_evaluated`, which the receipt records as
+  # `nil`. It is not a vacuous success. A non-empty map carries at least one
+  # key for which no comparison rule exists, so it fails closed instead of
+  # being ignored. A non-map cannot be a declared postcondition either.
+  #
+  # Returns `{:ok, :not_evaluated}` when no postcondition was declared, or
+  # `{:error, :unsupported_postcondition}` for any other input.
+  defp evaluate_postcondition(expected) when is_map(expected) do
+    if map_size(expected) == 0 do
+      {:ok, :not_evaluated}
+    else
+      {:error, :unsupported_postcondition}
+    end
+  end
+
+  defp evaluate_postcondition(_expected), do: {:error, :unsupported_postcondition}
 
   defp required_attrs(context) do
     [

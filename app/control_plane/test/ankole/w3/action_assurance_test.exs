@@ -411,13 +411,16 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert is_nil(receipt.precondition_status)
       # No Approval backs this decision, so independence is unevaluated.
       assert is_nil(receipt.approval_independent)
-      assert receipt.postcondition_verified == true
+      # No postcondition was declared, so none was proven. The caller's `true`
+      # does not establish it.
+      assert is_nil(receipt.postcondition_verified)
       assert receipt.result_output == result_output
-      refute receipt.execution_failed
-      assert is_nil(receipt.verified_at) == false
+      # No execution outcome is established by the bounded finalization API.
+      assert is_nil(receipt.execution_failed)
+      assert is_nil(receipt.verified_at)
     end
 
-    test "failed verification creates receipt marked as failed" do
+    test "a caller asserting false does not manufacture execution failure" do
       %{principal: owner} = human_fixture()
       company = company_fixture(owner.uid)
       %{principal: holder} = human_fixture(uid: "w3-p5-fail-h")
@@ -433,10 +436,10 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, receipt} =
                ActionAssurance.finalize_assurance(Ankole.Repo, context, false, %{})
 
-      assert receipt.postcondition_verified == false
-      assert receipt.execution_failed == true
-      # A failed verification has no observation time. Dating it would record
-      # a verification that never happened.
+      # `false` asserted no postcondition was verified. It does not report that
+      # execution failed, and it does not timestamp a verification.
+      assert is_nil(receipt.postcondition_verified)
+      assert is_nil(receipt.execution_failed)
       assert is_nil(receipt.verified_at)
     end
 
@@ -2060,7 +2063,130 @@ defmodule Ankole.W3.ActionAssuranceTest do
       # Neither unevaluated field may be invented by the insert path.
       assert is_nil(row.approval_independent)
       assert is_nil(row.precondition_status)
+      assert is_nil(row.execution_failed)
     end
+  end
+
+  # ─── B-7 / FIX-14 postcondition and execution truthfulness ────────────────
+
+  describe "B7 postcondition truthfulness" do
+    setup do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b7-holder")
+
+      {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        )
+
+      %{company: company, holder: holder, context: context}
+    end
+
+    test "an empty expected postcondition records not-evaluated, not success", %{
+      company: company,
+      context: context
+    } do
+      # The caller asserts success. That cannot manufacture verification.
+      assert {:ok, receipt} =
+               ActionAssurance.finalize_assurance(
+                 Ankole.Repo, context, true, %{"items_count" => 42}
+               )
+
+      assert is_nil(receipt.postcondition_verified)
+      assert is_nil(receipt.execution_failed)
+      assert is_nil(receipt.verified_at)
+      assert receipt.result_output == %{"items_count" => 42}
+      assert receipt.intent_action == "list_company_tasks"
+      assert length(ActionAssurance.list_company_receipts(Ankole.Repo, company.uid)) == 1
+    end
+
+    test "a caller asserting false records the same unknown truth", %{context: context} do
+      assert {:ok, receipt} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, context, false, %{})
+
+      assert is_nil(receipt.postcondition_verified)
+      assert is_nil(receipt.execution_failed)
+      assert is_nil(receipt.verified_at)
+    end
+
+    test "the sealed context carries an empty expected postcondition by default", %{
+      context: context
+    } do
+      assert context.postcondition_expected == %{}
+    end
+
+    test "a non-empty expected postcondition fails closed and persists nothing", %{
+      company: company
+    } do
+      before = Repo.aggregate(ActionReceipt, :count, :id)
+
+      # The declared condition cannot be interpreted, so no receipt is written.
+      assert {:error, :unsupported_postcondition} =
+               finalize_with_expected(%{status: "completed"})
+
+      assert Repo.aggregate(ActionReceipt, :count, :id) == before
+      assert ActionAssurance.list_company_receipts(Ankole.Repo, company.uid) == []
+    end
+
+    test "an unsupported postcondition is refused deterministically" do
+      first = finalize_with_expected(%{status: "completed"})
+      second = finalize_with_expected(%{status: "completed"})
+
+      assert first == second
+      assert first == {:error, :unsupported_postcondition}
+    end
+
+    test "a malformed non-map expected postcondition fails closed" do
+      assert {:error, :unsupported_postcondition} = finalize_with_expected("not-a-map")
+    end
+
+    test "execution_failed is never inferred from verification absence", %{
+      context: context
+    } do
+      assert {:ok, receipt} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, context, false, %{})
+
+      # Absence of a postcondition verification is not an execution failure.
+      refute receipt.execution_failed
+      assert is_nil(receipt.execution_failed)
+    end
+
+    test "no receipt is dated because no verification was proven", %{context: context} do
+      assert {:ok, receipt} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
+
+      assert is_nil(receipt.verified_at)
+    end
+  end
+
+  # A sealed context cannot be edited to declare a postcondition, because
+  # `postcondition_expected` is covered by the seal. This helper therefore
+  # proves the evaluator refuses a declared postcondition through the only
+  # reachable path: the `assure/7` option.
+  defp finalize_with_expected(expected) do
+    %{principal: owner} = human_fixture()
+    company = company_fixture(owner.uid)
+    %{principal: holder} = human_fixture(uid: "w3-b7-expected-#{System.unique_integer([:positive])}")
+
+    {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+    grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+    {:ok, context} =
+      ActionAssurance.assure(
+        Ankole.Repo,
+        company.uid,
+        holder.uid,
+        "list_company_tasks",
+        "workspace:default",
+        nil,
+        postcondition_expected: expected
+      )
+
+    ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
   end
 
   defp constraints_on(%Ecto.Changeset{constraints: constraints}) do

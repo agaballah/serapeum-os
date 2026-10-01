@@ -32,6 +32,13 @@ defmodule Ankole.W3.ActionReceipt do
   `precondition_status` and `approval_independent` were previously written as
   unconditional literals. Recording a fact nobody checked is worse than
   recording nothing, so both now default to `nil`.
+
+  `postcondition_verified` is `nil` whenever no postcondition was declared.
+  An empty `postcondition_expected` means the caller asserted no expected
+  post-state, so there is nothing to prove and nothing to claim; it is never
+  read as a vacuous success. `execution_failed` is `nil` because the
+  finalization API receives no trustworthy execution outcome. Absence of
+  verification is not evidence that execution succeeded or failed.
   """
 
   use Ecto.Schema
@@ -68,7 +75,11 @@ defmodule Ankole.W3.ActionReceipt do
     field :postcondition_verified, :boolean
     field :verified_at, :utc_datetime_usec
     field :result_output, :map
-    field :execution_failed, :boolean, default: false
+    # No default. Execution failure is an observed fact about the action
+    # itself, and the bounded finalization API receives no trustworthy
+    # execution signal. A `false` default would claim every receipt's action
+    # succeeded, which is exactly as fabricated as asserting `true`.
+    field :execution_failed, :boolean
 
     belongs_to :principal, Principal,
       foreign_key: :principal_uid,

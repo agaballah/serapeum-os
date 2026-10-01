@@ -426,8 +426,14 @@ defmodule Ankole.W3.BrokerTest do
       assert receipt.broker_name == "mock"
       assert receipt.capability_uid == "w3-p7-r1-cap"
       assert receipt.intent_action == "list_company_tasks"
-      assert receipt.postcondition_verified == true
-      assert receipt.execution_failed == false
+      # Broker success is execution evidence, not proof of a postcondition.
+      # No postcondition was declared, so none was verified.
+      assert is_nil(receipt.postcondition_verified)
+      assert receipt.result_output == result.output
+      # No execution failure was established, so neither success nor failure
+      # is claimed.
+      assert is_nil(receipt.execution_failed)
+      assert is_nil(receipt.verified_at)
     end
   end
 
