@@ -407,7 +407,10 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert receipt.company_uid == company.uid
       assert receipt.risk_class == "ROUTINE"
       assert receipt.authz_decision == "ALLOW"
-      assert receipt.precondition_status == "met"
+      # W3 evaluates no precondition, so the receipt claims none.
+      assert is_nil(receipt.precondition_status)
+      # No Approval backs this decision, so independence is unevaluated.
+      assert is_nil(receipt.approval_independent)
       assert receipt.postcondition_verified == true
       assert receipt.result_output == result_output
       refute receipt.execution_failed
@@ -432,6 +435,9 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       assert receipt.postcondition_verified == false
       assert receipt.execution_failed == true
+      # A failed verification has no observation time. Dating it would record
+      # a verification that never happened.
+      assert is_nil(receipt.verified_at)
     end
 
     test "no receipt exists before finalize_assurance is called" do
@@ -487,38 +493,99 @@ defmodule Ankole.W3.ActionAssuranceTest do
   # ─── reject receipt creation without prior assurance ─────────────────────
 
   describe "finalize_assurance without prior assurance" do
-    test "accepts arbitrary context and persists a receipt when valid" do
+    test "refuses a hand-built context and persists nothing" do
       %{principal: owner} = human_fixture()
       company = company_fixture(owner.uid)
       %{principal: holder} = human_fixture(uid: "w3-p5-bogus-h")
 
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
 
-      # finalize_assurance accepts any map as context; it doesn't enforce
-      # that assure was called first. The receipt captures whatever context
-      # was passed in.
-       context = %{
-         receipt_uid: "test-receipt-001",
-         intent_action: "list_company_tasks",
-         intent_resource: "workspace:default",
-         principal_uid: holder.uid,
-         company_uid: company.uid,
-         risk_class: "ROUTINE",
-         authz_decision: "ALLOW",
-         precondition_status: "met",
-         approval_uid: nil,
-         approval_independent: true,
-         capability_uid: nil,
-         broker_name: nil,
-         postcondition_expected: %{}
-       }
+      # A caller cannot hand-assemble a context. This map asserts an AuthZ
+      # decision and a precondition check that never ran.
+      context = %{
+        receipt_uid: "test-receipt-001",
+        intent_action: "list_company_tasks",
+        intent_resource: "workspace:default",
+        principal_uid: holder.uid,
+        company_uid: company.uid,
+        risk_class: "ROUTINE",
+        authz_decision: "ALLOW",
+        precondition_status: "met",
+        approval_uid: nil,
+        approval_independent: true,
+        capability_uid: nil,
+        broker_name: nil,
+        postcondition_expected: %{}
+      }
 
-      assert {:ok, receipt} =
+      assert {:error, :unverified_assurance_context} =
                ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
 
-      assert receipt.receipt_uid == "test-receipt-001"
-      assert receipt.intent_action == "list_company_tasks"
-      assert receipt.postcondition_verified == true
+      assert ActionAssurance.list_company_receipts(Ankole.Repo, company.uid) == []
+      assert Repo.get_by(ActionReceipt, receipt_uid: "test-receipt-001") == nil
+    end
+
+    test "refuses a context whose sealed fields were edited after assurance" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-p5-tamper-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        )
+
+      # Downgrading the risk class after the decision would let a HIGH-IMPACT
+      # receipt pass as ROUTINE. The seal covers the field, so it is refused.
+      raised = Map.put(context, :risk_class, "REVERSIBLE")
+
+      assert {:error, :unverified_assurance_context} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, raised, true, %{})
+    end
+
+    test "refuses a context whose approval claim was added after assurance" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-p5-forged-apr-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        )
+
+      assert is_nil(context.approval_uid)
+      assert is_nil(context.approval_independent)
+
+      # Claiming an Approval that never existed, and with it independence,
+      # must not survive the seal.
+      forged = %{
+        context
+        | approval_uid: "no-such-approval",
+          approval_independent: true
+      }
+
+      assert {:error, :unverified_assurance_context} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, forged, true, %{})
+
+      assert ActionAssurance.list_company_receipts(Ankole.Repo, company.uid) == []
+    end
+
+    test "reports a typed error for a partial context instead of raising" do
+      # The check stops at the first absent field rather than raising a
+      # KeyError, and names that field.
+      assert {:error, {:missing_context_field, :intent_action}} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, %{receipt_uid: "x"}, true, %{})
+    end
+
+    test "reports a typed error for a non-map context instead of raising" do
+      assert {:error, :invalid_assurance_context} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, nil, true, %{})
     end
   end
 
@@ -1677,5 +1744,326 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert resource_source =~ "def build(action, company_uid, targets)"
       assert resource_source =~ "def normalize_exact(resource)"
     end
+  end
+
+  # ─── B-6 receipt truthfulness ────────────────────────────────────────────
+
+  describe "B6 receipt truthfulness" do
+    test "an APPROVED decision derives approval_independent from the real Approval" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-indep-h")
+      %{principal: approver} = human_fixture(uid: "w3-b6-indep-a")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, approver.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
+
+      {:ok, approval} =
+        ApprovalStore.create_approval(Ankole.Repo, %{
+          uid: "w3-b6-indep-apr-#{System.unique_integer([:positive])}",
+          company_uid: company.uid,
+          requester_uid: holder.uid,
+          action: "cancel_task",
+          resource: "workspace:default",
+          risk_class: "HIGH-IMPACT"
+        })
+
+      assert {:ok, _} = ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "cancel_task",
+          "workspace:default", nil, approval_uid: approval.uid
+        )
+
+      # A real Approval passed the independence check, so the claim is earned.
+      assert context.approval_independent == true
+
+      assert {:ok, receipt} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
+
+      assert receipt.approval_independent == true
+      assert receipt.approval_uid == approval.uid
+    end
+
+    test "a non-approval decision claims no independence rather than true" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-noindep-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        )
+
+      refute context.approval_independent == true
+      assert is_nil(context.approval_independent)
+    end
+
+    test "assure reports the AuthZ decision instead of assuming ALLOW" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-authz-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        )
+
+      # The allow decision came from the real authorize call, not a constant.
+      assert {:ok, receipt} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
+
+      assert receipt.authz_decision == context.authz_decision
+      assert W3AuthZ.authorize(
+               Repo,
+               company.uid,
+               holder.uid,
+               "workspace:default",
+               "list_company_tasks",
+               %{}
+             ) == :ok
+    end
+
+    test "a duplicate receipt_uid reports a conflict rather than a generic failure" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-dupe-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        )
+
+      assert {:ok, _first} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
+
+      # Replaying the same context must not silently overwrite or succeed.
+      assert {:error, :receipt_uid_conflict} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
+
+      assert Repo.aggregate(ActionReceipt, :count, :id) == 1
+    end
+
+    test "a receipt that violates a field constraint reports the offending field" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-invalid-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        )
+
+      # Blank the action after assurance. The seal must refuse the edit, so
+      # the invalid value can never reach the changeset.
+      blanked = Map.put(context, :intent_action, "")
+
+      assert {:error, :unverified_assurance_context} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, blanked, true, %{})
+
+      assert Repo.aggregate(ActionReceipt, :count, :id) == 0
+    end
+
+    test "the receipt schema does not require the unevaluated fields" do
+      changeset =
+        ActionReceipt.changeset(%ActionReceipt{}, %{
+          receipt_uid: "w3-b6-schema-1",
+          intent_action: "list_company_tasks",
+          intent_resource: "workspace:default",
+          principal_uid: "w3-b6-schema-p",
+          company_uid: "w3-b6-schema-c",
+          risk_class: "ROUTINE",
+          authz_decision: "ALLOW"
+        })
+
+      # A receipt is writable without either unevaluated field, so recording
+      # "not checked" is representable rather than forcing a fabricated fact.
+      assert changeset.valid?
+
+      fields = Enum.map(changeset.errors, &elem(&1, 0))
+      refute :precondition_status in fields
+      refute :approval_independent in fields
+
+      changes = changeset.changes
+      refute Map.has_key?(changes, :precondition_status)
+      refute Map.has_key?(changes, :approval_independent)
+
+      # The schema must not re-introduce the fabricated default the migration
+      # removed from the database.
+      assert is_nil(%ActionReceipt{}.approval_independent)
+    end
+
+    test "no source file asserts an unevaluated fact as a literal" do
+      source = File.read!("lib/ankole/w3/action_assurance.ex")
+
+      # A hard-coded precondition pass would re-introduce the fabricated fact.
+      refute source =~ ~r/precondition_status:\s*"[^"]*"/
+      # Independence is derived from a checked Approval, never a literal.
+      refute source =~ ~r/approval_independent:\s*true/
+    end
+  end
+
+  # ─── B-6 referential and index contract ──────────────────────────────────
+
+  describe "B6 receipt referential contract" do
+    test "approval_uid is a restrictive foreign key to approvals.uid" do
+      %{rows: rows} =
+        Repo.query!("""
+        SELECT pg_get_constraintdef(oid)
+        FROM pg_constraint
+        WHERE conrelid = 'action_receipts'::regclass
+          AND conname = 'action_receipts_approval_uid_fkey'
+        """)
+
+      assert [[definition]] = rows
+      assert definition =~ "FOREIGN KEY (approval_uid)"
+      assert definition =~ "REFERENCES approvals(uid)"
+      assert definition =~ "ON DELETE RESTRICT"
+    end
+
+    test "a receipt naming a nonexistent Approval is refused by the database" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-fk-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+
+      receipt_uid = "w3-b6-fk-#{System.unique_integer([:positive])}"
+
+      changeset =
+        ActionReceipt.changeset(%ActionReceipt{}, %{
+          receipt_uid: receipt_uid,
+          intent_action: "list_company_tasks",
+          intent_resource: "workspace:default",
+          principal_uid: holder.uid,
+          company_uid: company.uid,
+          risk_class: "ROUTINE",
+          authz_decision: "ALLOW",
+          approval_uid: "w3-b6-no-such-approval",
+          approval_independent: true
+        })
+
+      assert changeset.valid?
+      assert {:error, failed} = Repo.insert(changeset)
+
+      # The declared constraint turns the database rejection into a changeset
+      # error rather than a raised Postgrex exception.
+      assert %{approval_uid: [_message]} = errors_on(failed)
+      assert Repo.get_by(ActionReceipt, receipt_uid: receipt_uid) == nil
+    end
+
+    test "a receipt with no Approval still persists" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-nullapr-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      {:ok, context} =
+        ActionAssurance.assure(
+          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        )
+
+      # A foreign key permits NULL, so "no Approval presented" stays writable.
+      assert {:ok, receipt} =
+               ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
+
+      assert is_nil(receipt.approval_uid)
+    end
+
+    test "assure refuses an Approval that does not exist" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-missingapr-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
+
+      assert {:error, :approval_invalid} =
+               ActionAssurance.assure(
+                 Ankole.Repo, company.uid, holder.uid, "cancel_task",
+                 "workspace:default", nil, approval_uid: "w3-b6-missing-approval"
+               )
+    end
+
+    test "capability_uid carries a non-unique index" do
+      %{rows: rows} =
+        Repo.query!("""
+        SELECT indexdef
+        FROM pg_indexes
+        WHERE tablename = 'action_receipts'
+          AND indexdef LIKE '%(capability_uid)%'
+        """)
+
+      assert [[indexdef]] = rows
+      assert indexdef =~ "action_receipts_capability_uid_index"
+
+      # Many receipts can reference one Capability, so the index must not be
+      # unique.
+      refute indexdef =~ "UNIQUE"
+    end
+
+    test "the changeset declares the approval foreign key" do
+      changeset =
+        ActionReceipt.changeset(%ActionReceipt{}, %{
+          receipt_uid: "w3-b6-decl",
+          intent_action: "list_company_tasks",
+          intent_resource: "workspace:default",
+          principal_uid: "p",
+          company_uid: "c",
+          risk_class: "ROUTINE",
+          authz_decision: "ALLOW",
+          approval_uid: "a"
+        })
+
+      constraints = constraints_on(changeset)
+      assert {:approval_uid, "action_receipts_approval_uid_fkey"} in constraints
+    end
+
+    test "an insert omitting approval_independent persists NULL rather than true" do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-b6-nil-h")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+
+      receipt_uid = "w3-b6-nil-#{System.unique_integer([:positive])}"
+
+      changeset =
+        ActionReceipt.changeset(%ActionReceipt{}, %{
+          receipt_uid: receipt_uid,
+          intent_action: "list_company_tasks",
+          intent_resource: "workspace:default",
+          principal_uid: holder.uid,
+          company_uid: company.uid,
+          risk_class: "ROUTINE",
+          authz_decision: "ALLOW"
+        })
+
+      assert {:ok, row} = Repo.insert(changeset)
+
+      # Neither unevaluated field may be invented by the insert path.
+      assert is_nil(row.approval_independent)
+      assert is_nil(row.precondition_status)
+    end
+  end
+
+  defp constraints_on(%Ecto.Changeset{constraints: constraints}) do
+    Enum.map(constraints, &{&1.field, &1.constraint})
   end
 end

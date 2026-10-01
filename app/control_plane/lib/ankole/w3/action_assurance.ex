@@ -31,6 +31,19 @@ defmodule Ankole.W3.ActionAssurance do
   the relevant W2 target rows are locked and before the mutation applies,
   because the locked row is the only stable value to compare against.
 
+  Receipt provenance
+  ------------------
+  `assure/7` returns a context sealed with a keyed digest over the fields the
+  system established. `finalize_assurance/4` refuses any context that lacks
+  a valid seal, so only a completed assurance can produce a receipt. A caller
+  cannot hand-build a context and assert a decision, an Approval, or an
+  outcome the system never made.
+
+  Fields no stage establishes stay `nil`. `precondition_status` and
+  `approval_independent` are `nil` unless a real check produced them, and the
+  execution-stage fields remain the finalizer's assertion until B-7 supplies
+  an observed value.
+
   Decision outcomes from `assure/6`:
   - `{:ok, assurance_context}` — chain passed; caller proceeds to broker
   - `{:error, reason}` — any stage failed; caller must not proceed
@@ -50,6 +63,28 @@ defmodule Ankole.W3.ActionAssurance do
   alias Ankole.W3.RiskClassifier
 
   # ─── public API ──────────────────────────────────────────────────────────
+
+  # The seal key is generated once at compile time. It is never persisted and
+  # never leaves the process, so a caller cannot construct a valid seal without
+  # first completing a real `assure/7` in this VM.
+  @seal_key :crypto.strong_rand_bytes(32)
+
+  # The context fields the system establishes. The seal covers exactly these,
+  # so none of them can be altered between assurance and receipt. Execution
+  # fields are excluded on purpose: B-7 fills those in from a real broker.
+  @sealed_fields [
+    :receipt_uid,
+    :intent_action,
+    :intent_resource,
+    :principal_uid,
+    :company_uid,
+    :risk_class,
+    :authz_decision,
+    :approval_uid,
+    :approval_independent,
+    :capability_uid,
+    :postcondition_expected
+  ]
 
   @doc """
   Runs the Action Assurance decision chain for one proposed action.
@@ -92,27 +127,35 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
          :ok <- check_resource_exact(normalized_resource),
          {:ok, risk_class} <- classify_risk(normalized_action, normalized_resource, risk_context),
          :ok <- check_not_prohibited(risk_class),
-         :ok <- check_authz(repo, company_uid, principal_uid, normalized_action, normalized_resource),
+         {:ok, authz_decision} <- check_authz(repo, company_uid, principal_uid, normalized_action, normalized_resource),
          :ok <- check_capability(repo, company_uid, capability_uid, normalized_action, principal_uid, normalized_resource, risk_class, approval_uid, scope, constraints),
          :ok <- check_execution_restrictions(scope, constraints),
          :ok <- check_approval_requirement(risk_class, approval_uid),
          :ok <- check_approval_independence(repo, company_uid, approval_uid, principal_uid, normalized_action, normalized_resource, risk_class),
          {:ok, receipt_uid} <- generate_receipt_uid() do
-      {:ok, %{
+      # `approval_independent` reports whether an Approval was actually
+      # validated. Without one there is no independence to claim, so the field
+      # stays nil rather than asserting `true` about a check that never ran.
+      approval_independent = if is_nil(approval_uid), do: nil, else: true
+
+      # No precondition is evaluated anywhere in W3, so nothing is claimed.
+      context = %{
         receipt_uid: receipt_uid,
         intent_action: normalized_action,
         intent_resource: normalized_resource,
         principal_uid: principal_uid,
         company_uid: company_uid,
         risk_class: risk_class,
-        authz_decision: "ALLOW",
-        precondition_status: "met",
+        authz_decision: authz_decision,
+        precondition_status: nil,
         approval_uid: approval_uid,
-        approval_independent: true,
+        approval_independent: approval_independent,
         capability_uid: capability_uid,
         broker_name: nil,
         postcondition_expected: postcondition_expected
-      }}
+      }
+
+      {:ok, Map.put(context, :seal, seal_context(context))}
     else
       {:error, :prohibited} -> {:error, :prohibited}
       {:error, :unknown_action} -> {:error, :unknown_action}
@@ -135,7 +178,21 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
   Creating a receipt before verification would violate the locked
   lifecycle.
 
-  Returns `{:ok, receipt}` on success or `{:error, reason}` on failure.
+  `assurance_context` must be the context returned by `assure/7`. The context
+  carries a seal over the fields the system established, and this function
+  refuses any context whose seal does not verify. A hand-built or edited
+  context returns `{:error, :unverified_assurance_context}` and persists
+  nothing, so a caller cannot assert an AuthZ decision, an Approval, or a
+  Capability that no assurance produced.
+
+  `verified?` and `result_output` remain the caller's assertion until B-7
+  supplies values observed from a real broker. This function records them as
+  given and timestamps `verified_at` only when `verified?` is true.
+
+  Returns `{:ok, receipt}` on success. On failure it returns a typed reason:
+  `:invalid_assurance_context`, `{:missing_context_field, field}`,
+  `:unverified_assurance_context`, `:receipt_uid_conflict`,
+  `:receipt_reference_invalid`, or `{:receipt_invalid, errors}`.
   """
   @spec finalize_assurance(Ecto.Repo.t(), map(), boolean(), map()) ::
           {:ok, ActionReceipt.t()} | {:error, term()}
@@ -202,12 +259,17 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
   defp check_not_prohibited("PROHIBITED"), do: {:error, :prohibited}
   defp check_not_prohibited(_), do: :ok
 
+  # The recorded decision is the one the real AuthZ path returned. A denied
+  # decision never reaches this stage, so the value persisted is always the
+  # decision that was actually made rather than an assumed constant.
   defp check_authz(repo, company_uid, principal_uid, action, resource) do
     case W3AuthZ.authorize(repo, company_uid, principal_uid, resource, action, %{}) do
-      :ok -> :ok
+      :ok -> {:ok, authz_decision_allow()}
       _ -> {:error, :authz_denied}
     end
   end
+
+  defp authz_decision_allow, do: "ALLOW"
 
   defp check_capability(_repo, _company_uid, nil, _action, _principal, _resource, _risk, _approval, _scope, _constraints), do: :ok
 
@@ -250,35 +312,114 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
     {:ok, seed}
   end
 
-  defp build_receipt_attrs(%{} = context, verified?, result_output) do
-    {:ok, %{
-      receipt_uid: context.receipt_uid,
-      intent_action: context.intent_action,
-      intent_resource: context.intent_resource,
-      principal_uid: context.principal_uid,
-      company_uid: context.company_uid,
-      risk_class: context.risk_class,
-      authz_decision: context.authz_decision,
-      precondition_status: context.precondition_status,
-      approval_uid: context.approval_uid,
-      approval_independent: context.approval_independent,
-      capability_uid: context.capability_uid,
-      broker_name: context.broker_name,
-      postcondition_expected: context.postcondition_expected,
-      postcondition_verified: verified?,
-      verified_at: DateTime.utc_now(),
-      result_output: result_output,
-      execution_failed: !verified?
-    }}
+  # A keyed digest over exactly the fields the system established. The key
+  # never leaves this module instance, so a seal cannot be produced outside a
+  # completed assurance, and any edit to a sealed field invalidates it.
+  defp seal_context(context) do
+    sealed = Map.take(context, @sealed_fields)
+    :crypto.mac(:hmac, :sha256, @seal_key, :erlang.term_to_binary(sealed))
   end
 
+  defp context_sealed?(context) do
+    case Map.fetch(context, :seal) do
+      {:ok, seal} -> seal == seal_context(context)
+      :error -> false
+    end
+  end
+
+  # Safe access: a malformed or hand-built context returns a typed error
+  # instead of raising. A missing field is a claim the caller cannot make, and
+  # it fails closed.
+  defp build_receipt_attrs(context, verified?, result_output) when is_map(context) do
+    with {:ok, attrs} <- required_attrs(context),
+         true <- context_sealed?(context) do
+      {:ok,
+       Map.merge(attrs, %{
+         broker_name: Map.get(context, :broker_name),
+         postcondition_verified: verified?,
+         # `verified_at` must timestamp an observed verification. Claiming a
+         # verification time while recording failure would misdate the event.
+         verified_at: if(verified?, do: DateTime.utc_now(), else: nil),
+         result_output: result_output,
+         execution_failed: !verified?
+       })}
+    else
+      false -> {:error, :unverified_assurance_context}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_receipt_attrs(_context, _verified?, _result_output), do: {:error, :invalid_assurance_context}
+
+  defp required_attrs(context) do
+    [
+      :receipt_uid,
+      :intent_action,
+      :intent_resource,
+      :principal_uid,
+      :company_uid,
+      :risk_class,
+      :authz_decision,
+      :precondition_status,
+      :approval_uid,
+      :approval_independent,
+      :capability_uid,
+      :postcondition_expected
+    ]
+    |> Enum.reduce_while({:ok, %{}}, fn key, {:ok, acc} ->
+      case Map.fetch(context, key) do
+        {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
+        :error -> {:halt, {:error, {:missing_context_field, key}}}
+      end
+    end)
+  end
+
+  # Persistence failures are typed by cause. Collapsing a duplicate identity, a
+  # dangling reference, and an invalid field into one atom would hide which
+  # invariant broke.
   defp save_receipt(repo, attrs) do
     %ActionReceipt{}
     |> ActionReceipt.changeset(attrs)
     |> repo.insert()
     |> case do
-      {:ok, receipt} -> {:ok, receipt}
-      {:error, _} -> {:error, :receipt_save_failed}
+      {:ok, receipt} ->
+        {:ok, receipt}
+
+      {:error, changeset} ->
+        {:error, receipt_insert_error(changeset)}
     end
+  end
+
+  defp receipt_insert_error(changeset) do
+    cond do
+      duplicate_receipt?(changeset) -> :receipt_uid_conflict
+      dangling_reference?(changeset) -> :receipt_reference_invalid
+      true -> {:receipt_invalid, errors_on(changeset)}
+    end
+  end
+
+  defp duplicate_receipt?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {:receipt_uid, {_message, opts}} ->
+        Keyword.get(opts, :constraint) == :unique
+
+      _other ->
+        false
+    end)
+  end
+
+  defp dangling_reference?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {field, {_message, opts}}
+      when field in [:principal_uid, :company_uid, :capability_uid, :approval_uid] ->
+        Keyword.get(opts, :constraint) == :foreign_key
+
+      _other ->
+        false
+    end)
+  end
+
+  defp errors_on(%Ecto.Changeset{errors: errors}) do
+    Enum.map(errors, fn {field, {message, _opts}} -> {field, message} end)
   end
 end

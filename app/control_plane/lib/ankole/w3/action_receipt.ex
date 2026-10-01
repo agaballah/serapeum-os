@@ -10,6 +10,28 @@ defmodule Ankole.W3.ActionReceipt do
   This is the minimal P5 persistence contract. It records the assurance
   decision outcome without storing broker implementation details (P7) or
   approval workflow internals (P6).
+
+  ## Field provenance
+
+  A receipt field must represent a fact the system established. This module
+  distinguishes three states so a reader is never misled by an absent value:
+
+  - **Established.** `intent_action`, `intent_resource`, `risk_class`,
+    `receipt_uid`, and `inserted_at` are derived by the system before the row
+    is written.
+  - **Established when present.** `capability_uid`, `approval_uid`,
+    `principal_uid`, and `company_uid` are proved only when the caller
+    supplied them and the corresponding validation passed. `nil` is a
+    truthful statement that no such authority was presented.
+  - **Not yet established.** `precondition_status`, `approval_independent`,
+    `broker_name`, `postcondition_verified`, `verified_at`, `result_output`,
+    and `execution_failed` describe an execution stage that does not exist in
+    W3. They are nullable for exactly that reason, and `nil` means "not
+    evaluated" rather than "passed".
+
+  `precondition_status` and `approval_independent` were previously written as
+  unconditional literals. Recording a fact nobody checked is worse than
+  recording nothing, so both now default to `nil`.
   """
 
   use Ecto.Schema
@@ -18,6 +40,7 @@ defmodule Ankole.W3.ActionReceipt do
 
   alias Ankole.Company
   alias Ankole.Principals.Principal
+  alias Ankole.W3.Approval
   alias Ankole.W3.Capability
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
@@ -35,8 +58,11 @@ defmodule Ankole.W3.ActionReceipt do
     field :risk_class, :string
     field :authz_decision, :string
     field :precondition_status, :string
-    field :approval_uid, :string
-    field :approval_independent, :boolean, default: true
+    # No default. The migration that made this column nullable also dropped the
+    # database default, so an absent value stays NULL and truthfully reports
+    # that no independence check ran. A `true` default here would fabricate the
+    # fact on every insert that omitted the field.
+    field :approval_independent, :boolean
     field :broker_name, :string
     field :postcondition_expected, :map, default: %{}
     field :postcondition_verified, :boolean
@@ -56,6 +82,12 @@ defmodule Ankole.W3.ActionReceipt do
 
     belongs_to :capability, Capability,
       foreign_key: :capability_uid,
+      references: :uid,
+      type: :string
+
+    # A receipt may name no Approval, but any Approval it does name must exist.
+    belongs_to :approval, Approval,
+      foreign_key: :approval_uid,
       references: :uid,
       type: :string
 
@@ -87,6 +119,9 @@ defmodule Ankole.W3.ActionReceipt do
       :result_output,
       :execution_failed
     ])
+    # `precondition_status` and `approval_independent` are intentionally
+    # absent: no precondition is evaluated and no independence check runs when
+    # no Approval exists, so requiring them would force a fabricated fact.
     |> validate_required([
       :receipt_uid,
       :intent_action,
@@ -94,9 +129,7 @@ defmodule Ankole.W3.ActionReceipt do
       :principal_uid,
       :company_uid,
       :risk_class,
-      :authz_decision,
-      :precondition_status,
-      :approval_independent
+      :authz_decision
     ])
     |> validate_inclusion(:risk_class, @canonical_risk_classes)
     |> validate_inclusion(:authz_decision, @authz_decisions)
@@ -105,6 +138,7 @@ defmodule Ankole.W3.ActionReceipt do
     |> foreign_key_constraint(:principal_uid)
     |> foreign_key_constraint(:company_uid)
     |> foreign_key_constraint(:capability_uid)
+    |> foreign_key_constraint(:approval_uid, name: :action_receipts_approval_uid_fkey)
     |> check_constraint(:risk_class, name: :action_receipts_risk_class_valid)
     |> check_constraint(:authz_decision, name: :action_receipts_authz_decision_valid)
     |> check_constraint(:precondition_status, name: :action_receipts_precondition_valid)
