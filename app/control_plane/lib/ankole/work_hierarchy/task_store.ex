@@ -305,9 +305,14 @@ defmodule Ankole.WorkHierarchy.TaskStore do
   @doc """
   Transitions a Task from its current status to a new status.
 
-  Validates the transition against the canonical guard matrix.
-  Creates a task_lifecycle_events row atomically within the transaction.
-  Returns the updated Task.
+  Validates the transition against the canonical guard matrix and requires a
+  named changer, so the resulting `task_lifecycle_events` row always names the
+  Principal responsible for the change. Creates that row atomically within the
+  transaction. Returns the updated Task.
+
+  Every non-CANCELLED target requires `changed_by_uid` and returns
+  `:changed_by_uid_required` when it is absent. CANCELLED is judged by its own
+  guard first and keeps returning `:cancelled_by_uid_required`.
   """
   @spec transition_task(Ecto.Repo.t(), String.t(), String.t(), String.t(), map()) ::
           {:ok, Task.t()} | {:error, term()}
@@ -317,7 +322,7 @@ defmodule Ankole.WorkHierarchy.TaskStore do
          :ok <- validate_not_terminal(from_status),
          :ok <- validate_transition_allowed(from_status, to_status),
          :ok <- validate_transition_guard(from_status, to_status, task, opts, repo, company_uid),
-         :ok <- validate_changer_if_present(opts[:changed_by_uid], repo, company_uid),
+         :ok <- validate_lifecycle_changer(opts[:changed_by_uid], repo, company_uid),
          {:ok, task} <- update_task_status(repo, task, to_status, opts),
          {:ok, _event} <- insert_lifecycle_event(repo, task, from_status, to_status, opts) do
       {:ok, task}
@@ -716,15 +721,14 @@ defmodule Ankole.WorkHierarchy.TaskStore do
     end
   end
 
-  # Allow lifecycle transitions that do not name a changer (no changed_by_uid in
-  # opts) to continue through. When a changer is supplied, reuse validate_changer
-  # so normalization, existence, active status, and Company membership are all
-  # enforced in one shot on the already-locked Principal row. Always returns :ok
-  # on success; the Principal struct returned by validate_changer is discarded so
-  # it cannot leak into the with-chain result binding.
-  defp validate_changer_if_present(nil, _repo, _company_uid), do: :ok
+  # Every lifecycle transition must name its changer. `task_lifecycle_events.
+  # changed_by_uid` is non-nullable, so an omitted actor used to be caught only
+  # when the event insert failed, after the Task row had already been updated and
+  # as an opaque changeset rather than a domain error. Refusing it here keeps the
+  # transition atomic in intent and reports a typed reason before any write.
+  defp validate_lifecycle_changer(nil, _repo, _company_uid), do: {:error, :changed_by_uid_required}
 
-  defp validate_changer_if_present(changed_by_uid, repo, company_uid) do
+  defp validate_lifecycle_changer(changed_by_uid, repo, company_uid) do
     case validate_changer(repo, changed_by_uid, company_uid) do
       {:ok, _principal} -> :ok
       other -> other

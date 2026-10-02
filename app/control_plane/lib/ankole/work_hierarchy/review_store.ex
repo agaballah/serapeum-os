@@ -72,17 +72,28 @@ defmodule Ankole.WorkHierarchy.ReviewStore do
 
   @doc """
   Invalidates an existing non-invalidated Review, recording the reason and
-  emitting a `review_events` `invalidated` row. The verdict is preserved.
+  emitting a `review_events` `invalidated` row that names the invalidator.
+
+  The invalidator is a Principal distinct from the reviewer: invalidating a
+  verdict is not the same act as delivering one, so the two roles keep their own
+  validation and their own errors. The invalidator must be an active Principal
+  belonging to `company_uid`. `review_events.reviewer_uid` carries the Principal
+  responsible for that event, so a manual invalidation always names its actor.
+
+  This is the manual path only. `Ankole.WorkHierarchy.ResultStore` invalidates
+  superseded reviews as a domain cascade and records that event without a
+  Principal, which stays legitimate.
   """
-  @spec invalidate_review(Ecto.Repo.t(), String.t(), String.t(), String.t()) ::
+  @spec invalidate_review(Ecto.Repo.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, ReviewRecord.t()} | {:error, term()}
-  def invalidate_review(repo, company_uid, review_uid, reason) do
+  def invalidate_review(repo, company_uid, review_uid, invalidator_principal_uid, reason) do
     with :ok <- validate_company_exists(repo, company_uid),
+         :ok <- validate_invalidator(repo, company_uid, invalidator_principal_uid),
          {:ok, review} <- fetch_review_for_update(repo, review_uid),
          :ok <- validate_review_not_invalidated(review),
          :ok <- validate_review_company_scope(repo, review, company_uid),
          attrs <- %{invalidation_reason: reason},
-         {:ok, review} <- apply_invalidation(repo, review, attrs) do
+         {:ok, review} <- apply_invalidation(repo, review, attrs, invalidator_principal_uid) do
       {:ok, review}
     end
   end
@@ -230,6 +241,51 @@ defmodule Ankole.WorkHierarchy.ReviewStore do
     end
   end
 
+  # ─── Invalidator validation ──────────────────────────────────────────────
+
+  # The invalidator is a separate domain role from the reviewer, so it carries
+  # its own errors rather than borrowing the reviewer's. The row is locked
+  # because the invalidation is judged against the Principal as it stands inside
+  # the same transaction that writes the event naming it.
+  defp validate_invalidator(repo, company_uid, invalidator_principal_uid) do
+    with {:ok, normalized_uid} <- normalize_invalidator_uid(invalidator_principal_uid),
+         {:ok, principal} <- fetch_invalidator_for_update(repo, normalized_uid),
+         :ok <- validate_invalidator_active(principal),
+         :ok <- validate_invalidator_in_company(repo, principal.uid, company_uid) do
+      :ok
+    end
+  end
+
+  # PrincipalKey.normalize/1 already rejects nil as :invalid_uid. Absence is a
+  # distinct condition from a malformed UID, so it is answered before
+  # normalization rather than folded into it.
+  defp normalize_invalidator_uid(nil), do: {:error, :invalidator_uid_required}
+  defp normalize_invalidator_uid(uid), do: Principals.normalize_uid(uid)
+
+  defp fetch_invalidator_for_update(repo, invalidator_uid) do
+    case repo.one(
+           from p in Principal,
+             where: p.uid == ^invalidator_uid,
+             lock: "FOR UPDATE"
+         ) do
+      %Principal{} = principal -> {:ok, principal}
+      nil -> {:error, :invalidator_not_found}
+    end
+  end
+
+  defp validate_invalidator_active(%Principal{status: :active}), do: :ok
+  defp validate_invalidator_active(%Principal{status: status}), do: {:error, {:invalidator_not_active, status}}
+
+  defp validate_invalidator_in_company(repo, invalidator_uid, company_uid) do
+    case repo.one(
+           from m in Membership,
+             where: m.principal_uid == ^invalidator_uid and m.company_uid == ^company_uid
+         ) do
+      %Membership{} -> :ok
+      nil -> {:error, :invalidator_not_in_company}
+    end
+  end
+
   # ─── Insert helpers ───────────────────────────────────────────────────────
 
   defp insert_review(repo, attrs) do
@@ -249,7 +305,7 @@ defmodule Ankole.WorkHierarchy.ReviewStore do
     |> repo.insert()
   end
 
-  defp apply_invalidation(repo, %ReviewRecord{} = review, attrs) do
+  defp apply_invalidation(repo, %ReviewRecord{} = review, attrs, invalidator_uid) do
     reason = Map.get(attrs, :invalidation_reason)
 
     changeset =
@@ -261,7 +317,7 @@ defmodule Ankole.WorkHierarchy.ReviewStore do
 
     with {:ok, review} <- repo.update(changeset),
          {:ok, _event} <-
-           insert_review_event(repo, review, "invalidated", nil) do
+           insert_review_event(repo, review, "invalidated", invalidator_uid) do
       {:ok, review}
     else
       {:error, _} = error -> error

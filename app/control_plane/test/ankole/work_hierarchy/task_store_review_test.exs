@@ -445,7 +445,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       end)
 
       {:ok, _review} = transact(fn repo ->
-        ReviewStore.invalidate_review(repo, company.uid, review.review_uid, "manual re-review")
+        ReviewStore.invalidate_review(repo, company.uid, review.review_uid, human.uid, "manual re-review")
       end)
 
       refreshed = Repo.get(Ankole.WorkHierarchy.ReviewRecord, review.id)
@@ -457,6 +457,11 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
         where: e.review_uid == ^review.review_uid
       )
       assert "invalidated" in Enum.map(events, & &1.event_type)
+
+      # A manual invalidation names the Principal responsible for it, so the
+      # audit row is not left claiming that nobody invalidated the verdict.
+      [invalidated] = Enum.filter(events, &(&1.event_type == "invalidated"))
+      assert invalidated.reviewer_uid == human.uid
     end
 
     test "invalidation of already-invalidated review is rejected" do
@@ -500,11 +505,11 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
       end)
 
       {:ok, _} = transact(fn repo ->
-        ReviewStore.invalidate_review(repo, company.uid, review.review_uid, "first")
+        ReviewStore.invalidate_review(repo, company.uid, review.review_uid, human.uid, "first")
       end)
 
       assert {:error, :review_already_invalidated} = transact(fn repo ->
-        ReviewStore.invalidate_review(repo, company.uid, review.review_uid, "second")
+        ReviewStore.invalidate_review(repo, company.uid, review.review_uid, human.uid, "second")
       end)
     end
 
@@ -516,9 +521,256 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewTest do
         Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
       end)
 
+      # A valid invalidator isolates review_not_found from invalidator failure.
       assert {:error, :review_not_found} = transact(fn repo ->
-        ReviewStore.invalidate_review(repo, company.uid, "nonexistent-review", "reason")
+        ReviewStore.invalidate_review(repo, company.uid, "nonexistent-review", human.uid, "reason")
       end)
+    end
+  end
+
+
+  # ─── B14: a manual invalidation must name the Principal that performed it ──
+
+  describe "invalidate_review — B14 invalidator" do
+    @cascade_result_uid "result-b14r-cascade-2"
+    # Builds a live, non-invalidated Review so each test can vary only the
+    # invalidator and observe the effect on the review and its events.
+    defp review_awaiting_invalidation(suffix) do
+      human = human_owner_fixture()
+      reviewer = reviewer_fixture()
+      company = company_fixture(human.uid)
+
+      {:ok, _membership_h} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+      {:ok, _membership_r} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, reviewer.uid)
+      end)
+
+      {:ok, task} = transact(fn repo ->
+        Ankole.WorkHierarchy.TaskStore.create_task(repo, company.uid, %{
+          uid: "task-b14r-#{suffix}",
+          creator_principal_uid: human.uid,
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Obj.",
+          scope_text: "Scope.",
+          required_outcome_text: "Out.",
+          acceptance_criteria_text: "Crit."
+        })
+      end)
+
+      {:ok, result} = transact(fn repo ->
+        ResultStore.create_result(repo, company.uid, task.uid, %{
+          result_uid: "result-b14r-#{suffix}",
+          workflow_run_id: execution_run_id(company),
+          execution_attempt_ref: "attempt-#{suffix}"
+        })
+      end)
+
+      {:ok, review} = transact(fn repo ->
+        ReviewStore.create_review(repo, company.uid, task.uid, result.result_uid, reviewer.uid, %{
+          criteria_text: "Criteria.",
+          verdict: "APPROVED",
+          rationale_text: "Rationale."
+        })
+      end)
+
+      %{company: company, human: human, reviewer: reviewer, review: review}
+    end
+
+    defp invalidated_events(review) do
+      Repo.all(
+        from e in Ankole.WorkHierarchy.ReviewEvent,
+          where: e.review_uid == ^review.review_uid and e.event_type == "invalidated"
+      )
+    end
+
+    defp assert_review_untouched(review) do
+      refreshed = Repo.get(ReviewRecord, review.id)
+      assert is_nil(refreshed.invalidated_at)
+      assert is_nil(refreshed.invalidation_reason)
+      assert invalidated_events(review) == []
+    end
+
+    test "B14-R1b a nil invalidator is refused by the live five-argument API" do
+      %{company: company, review: review} = review_awaiting_invalidation("nil")
+
+      assert {:error, :invalidator_uid_required} =
+               transact(fn repo ->
+                 ReviewStore.invalidate_review(repo, company.uid, review.review_uid, nil, "reason")
+               end)
+
+      assert_review_untouched(review)
+    end
+
+    test "B14-R2 a nonexistent invalidator is refused" do
+      %{company: company, review: review} = review_awaiting_invalidation("absent")
+
+      assert {:error, :invalidator_not_found} =
+               transact(fn repo ->
+                 ReviewStore.invalidate_review(
+                   repo,
+                   company.uid,
+                   review.review_uid,
+                   "human-nonexistent-b14r",
+                   "reason"
+                 )
+               end)
+
+      assert_review_untouched(review)
+    end
+
+    test "B14-R3 an inactive invalidator is refused" do
+      %{company: company, review: review} = review_awaiting_invalidation("inactive")
+      invalidator = human_owner_fixture()
+
+      {:ok, _membership} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, invalidator.uid)
+      end)
+
+      assert {:ok, _disabled} =
+               invalidator
+               |> Principal.changeset(%{status: :disabled})
+               |> Repo.update()
+
+      assert {:error, {:invalidator_not_active, :disabled}} =
+               transact(fn repo ->
+                 ReviewStore.invalidate_review(
+                   repo,
+                   company.uid,
+                   review.review_uid,
+                   invalidator.uid,
+                   "reason"
+                 )
+               end)
+
+      assert_review_untouched(review)
+    end
+
+    test "B14-R4 a cross-Company invalidator is refused" do
+      %{company: company, review: review} = review_awaiting_invalidation("cross")
+      outsider = human_owner_fixture()
+
+      assert {:error, :invalidator_not_in_company} =
+               transact(fn repo ->
+                 ReviewStore.invalidate_review(
+                   repo,
+                   company.uid,
+                   review.review_uid,
+                   outsider.uid,
+                   "reason"
+                 )
+               end)
+
+      assert_review_untouched(review)
+    end
+
+    test "B14-R5 a malformed invalidator UID is refused" do
+      %{company: company, review: review} = review_awaiting_invalidation("malformed")
+
+      assert {:error, :invalid_uid} =
+               transact(fn repo ->
+                 ReviewStore.invalidate_review(repo, company.uid, review.review_uid, "  ", "reason")
+               end)
+
+      assert_review_untouched(review)
+    end
+
+    test "B14-R6 a valid invalidator succeeds and is persisted on the event" do
+      %{company: company, human: human, review: review} = review_awaiting_invalidation("valid")
+
+      assert {:ok, invalidated} =
+               transact(fn repo ->
+                 ReviewStore.invalidate_review(
+                   repo,
+                   company.uid,
+                   review.review_uid,
+                   human.uid,
+                   "manual re-review"
+                 )
+               end)
+
+      assert invalidated.invalidated_at != nil
+      assert invalidated.invalidation_reason == "manual re-review"
+      assert invalidated.verdict == "APPROVED"
+
+      assert [event] = invalidated_events(review)
+      assert event.reviewer_uid == human.uid
+    end
+
+    test "B14-R7 the automatic supersede cascade stays actorless and metadata-backed" do
+      human = human_owner_fixture()
+      reviewer = reviewer_fixture()
+      company = company_fixture(human.uid)
+
+      {:ok, _membership_h} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, human.uid)
+      end)
+      {:ok, _membership_r} = transact(fn repo ->
+        Ankole.Company.MembershipStore.add_member(repo, company.uid, reviewer.uid)
+      end)
+
+      {:ok, task} =
+        transact(fn repo ->
+          Ankole.WorkHierarchy.TaskStore.create_task(repo, company.uid, %{
+            uid: "task-b14r-cascade",
+            creator_principal_uid: human.uid,
+            origin_kind: "OWNER_REQUEST",
+            objective_text: "Obj.",
+            scope_text: "Scope.",
+            required_outcome_text: "Out.",
+            acceptance_criteria_text: "Crit."
+          })
+        end)
+
+      run_id = execution_run_id(company)
+
+      {:ok, result_1} = transact(fn repo ->
+        ResultStore.create_result(repo, company.uid, task.uid, %{
+          result_uid: "result-b14r-cascade-1",
+          workflow_run_id: run_id,
+          execution_attempt_ref: "attempt-cascade-1"
+        })
+      end)
+
+      {:ok, review} = transact(fn repo ->
+        ReviewStore.create_review(repo, company.uid, task.uid, result_1.result_uid, reviewer.uid, %{
+          criteria_text: "Criteria.",
+          verdict: "APPROVED",
+          rationale_text: "Rationale."
+        })
+      end)
+
+      {:ok, _superseding} = transact(fn repo ->
+        ResultStore.create_result(repo, company.uid, task.uid, %{
+          result_uid: @cascade_result_uid,
+          workflow_run_id: run_id,
+          execution_attempt_ref: "attempt-cascade-2"
+        })
+      end)
+
+      refreshed = Repo.get(ReviewRecord, review.id)
+      assert refreshed.invalidated_at != nil
+      assert String.contains?(refreshed.invalidation_reason, @cascade_result_uid)
+
+      # The cascade is a domain consequence of superseding a Result, not an
+      # authenticated act, so it must keep naming no Principal. The metadata is
+      # what preserves why the verdict was discarded.
+      assert [event] = invalidated_events(review)
+      assert event.reviewer_uid == nil
+      assert event.metadata["reason"] == "superseded"
+      assert event.metadata["new_result_uid"] == @cascade_result_uid
+
+      # Only the reviewer's own creation event names a Principal, which proves
+      # the cascade fabricated none.
+      created_events =
+        Repo.all(
+          from e in Ankole.WorkHierarchy.ReviewEvent,
+            where: e.review_uid == ^review.review_uid and e.event_type == "created"
+        )
+
+      assert [created] = created_events
+      assert created.reviewer_uid == reviewer.uid
     end
   end
 

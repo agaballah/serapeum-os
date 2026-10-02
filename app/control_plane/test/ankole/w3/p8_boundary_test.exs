@@ -8,6 +8,11 @@ defmodule Ankole.W3.P8BoundaryTest do
   # the /5 and /6 forms of cancel_task, and both the /4 and /5 forms of
   # transition_task, are protected.
   #
+  # The catalog tracks the live arity, not a historical one. B-14 removed the
+  # actorless /4 form of invalidate_review, so /4 is deliberately absent: an
+  # arity that no longer exists cannot be called, and a caller reaching a manual
+  # review invalidation must go through the /5 form that names its invalidator.
+  #
   # W2 read APIs are deliberately absent from this map and are therefore never
   # prohibited.
 
@@ -20,7 +25,7 @@ defmodule Ankole.W3.P8BoundaryTest do
     "Ankole.WorkHierarchy.ResultStore" => %{create_result: [4]},
     "Ankole.WorkHierarchy.ReviewStore" => %{
       create_review: [6],
-      invalidate_review: [4]
+      invalidate_review: [5]
     },
     "Ankole.WorkHierarchy.TaskStore" => %{
       create_task: [3],
@@ -134,6 +139,31 @@ defmodule Ankole.W3.P8BoundaryTest do
         end)
 
       assert missing == [], "Protected MFAs that no longer exist: #{inspect(missing)}"
+    end
+
+    # B-14 removed the actorless manual review invalidation. The catalog must
+    # name the arity that actually exists, and the arity that could omit its
+    # actor must not exist at all, so no production caller can reach a manual
+    # invalidation that records no invalidator.
+    test "the protected review invalidation is the actor-naming arity" do
+      module = Module.concat(["Ankole.WorkHierarchy.ReviewStore"])
+      Code.ensure_loaded!(module)
+
+      exported =
+        module.module_info(:exports)
+        |> Enum.filter(fn {name, _arity} -> name == :invalidate_review end)
+
+      assert exported == [{:invalidate_review, 5}],
+             """
+             Manual review invalidation must exist only in the form that names
+             its invalidator. Exported: #{inspect(exported)}
+             """
+
+      assert match_arity?(
+               @protected["Ankole.WorkHierarchy.ReviewStore"],
+               :invalidate_review,
+               5
+             )
     end
 
     test "the catalog protects every persistent W2 mutation and no read API" do

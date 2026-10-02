@@ -178,7 +178,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewConcurrencyTest do
           Ecto.Adapters.SQL.Sandbox.allow(Repo, parent_pid, self())
 
           Repo.transact(fn repo ->
-            ReviewStore.invalidate_review(repo, company.uid, review.review_uid, "first")
+            ReviewStore.invalidate_review(repo, company.uid, review.review_uid, human.uid, "first")
           end)
         end)
 
@@ -187,7 +187,7 @@ defmodule Ankole.WorkHierarchy.TaskStoreReviewConcurrencyTest do
           Ecto.Adapters.SQL.Sandbox.allow(Repo, parent_pid, self())
 
           Repo.transact(fn repo ->
-            ReviewStore.invalidate_review(repo, company.uid, review.review_uid, "second")
+            ReviewStore.invalidate_review(repo, company.uid, review.review_uid, human.uid, "second")
           end)
         end)
 

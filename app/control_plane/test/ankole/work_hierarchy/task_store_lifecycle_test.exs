@@ -614,6 +614,132 @@ defmodule Ankole.WorkHierarchy.TaskStoreLifecycleTest do
       })
     end
 
+    # ─── B14-L: a lifecycle transition must name the Principal that made it ──
+
+    test "B14-L1 a CONTROLLED transition with a nil changer is refused", %{company: company, task: task} do
+      assert {:error, :changed_by_uid_required} = do_transition(Repo, company.uid, task.uid, "READY", nil)
+    end
+
+    test "B14-L1b a CONTROLLED transition that omits changed_by_uid entirely is refused", %{company: company, task: task} do
+      assert {:error, :changed_by_uid_required} =
+               TaskStore.transition_task(Repo, company.uid, task.uid, "READY", %{})
+    end
+
+    test "B14-L2 a HIGH-IMPACT transition with a nil changer is refused", %{company: company, task: task} do
+      # The FAILED guard runs first and is satisfied, so the actor requirement
+      # is what refuses this HIGH-IMPACT transition.
+      assert {:error, :changed_by_uid_required} =
+               TaskStore.transition_task(Repo, company.uid, task.uid, "FAILED", %{
+                 changed_by_uid: nil,
+                 failure_reason: "The work cannot proceed."
+               })
+    end
+
+    test "B14-L2b a COMPLETED transition with a nil changer is refused", %{company: company, task: task, human: human} do
+      agent = active_same_company_agent(company)
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "READY", human.uid)
+      {:ok, _} = TaskStore.assign_agent(Repo, company.uid, task.uid, agent.uid, human.uid)
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "IN_PROGRESS", human.uid)
+
+      assert {:error, :changed_by_uid_required} = do_transition(Repo, company.uid, task.uid, "COMPLETED", nil)
+    end
+
+    test "B14-L3 a refused nil changer leaves the Task and its history untouched", %{company: company, task: task} do
+      before_task = Repo.get!(Ankole.WorkHierarchy.Task, task.id)
+      before_version = before_task.version
+      assert before_task.status == "PROPOSED"
+      assert Repo.all(from e in TaskLifecycleEvent, where: e.task_uid == ^task.uid) == []
+
+      assert {:error, :changed_by_uid_required} = do_transition(Repo, company.uid, task.uid, "READY", nil)
+
+      after_task = Repo.get!(Ankole.WorkHierarchy.Task, task.id)
+      assert after_task.status == "PROPOSED"
+      assert after_task.version == before_version
+      assert Repo.all(from e in TaskLifecycleEvent, where: e.task_uid == ^task.uid) == []
+    end
+
+    test "B14-L4 a valid changer is persisted on the lifecycle event", %{company: company, task: task, human: human} do
+      assert {:ok, updated} = do_transition(Repo, company.uid, task.uid, "READY", human.uid)
+      assert updated.status == "READY"
+
+      assert [event] = Repo.all(from e in TaskLifecycleEvent, where: e.task_uid == ^task.uid)
+      assert event.changed_by_uid == human.uid
+      assert event.from_status == "PROPOSED"
+      assert event.to_status == "READY"
+    end
+
+    test "B14-L5 a supplied but invalid changer keeps its existing error contract", %{company: company, task: task, human: human} do
+      disabled = disabled_same_company_agent(company)
+      cross_company = other_company_agent()
+
+      assert {:error, :invalid_uid} = do_transition(Repo, company.uid, task.uid, "READY", "  ")
+      assert {:error, :changer_not_found} = do_transition(Repo, company.uid, task.uid, "READY", "human-nonexistent-b14-l5")
+      assert {:error, {:creator_not_active, :disabled}} = do_transition(Repo, company.uid, task.uid, "READY", disabled.uid)
+      assert {:error, :creator_not_member} = do_transition(Repo, company.uid, task.uid, "READY", cross_company.uid)
+
+      # Refusing those actors must not have disturbed the Task, so a legitimate
+      # changer still succeeds afterwards.
+      assert {:ok, _} = do_transition(Repo, company.uid, task.uid, "READY", human.uid)
+    end
+
+    test "B14-L6 a CANCELLED transition keeps its own missing-actor error", %{company: company, task: task} do
+      assert {:error, :cancelled_by_uid_required} =
+               TaskStore.cancel_task(Repo, company.uid, task.uid, nil, "No longer needed")
+    end
+
+    test "B14-L7 every non-CANCELLED target refuses a nil changer", %{company: company, task: task, human: human} do
+      agent = active_same_company_agent(company)
+
+      # CONTROLLED: READY from PROPOSED.
+      assert {:error, :changed_by_uid_required} = do_transition(Repo, company.uid, task.uid, "READY", nil)
+
+      # HIGH-IMPACT: FAILED from PROPOSED, with its own guard satisfied.
+      assert {:error, :changed_by_uid_required} =
+               TaskStore.transition_task(Repo, company.uid, task.uid, "FAILED", %{
+                 changed_by_uid: nil,
+                 failure_reason: "Abandoned before it started."
+               })
+
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "READY", human.uid)
+
+      # CONTROLLED: ASSIGNED from READY, with the accountable Agent supplied.
+      assert {:error, :changed_by_uid_required} =
+               TaskStore.transition_task(Repo, company.uid, task.uid, "ASSIGNED", %{
+                 changed_by_uid: nil,
+                 accountable_agent_uid: agent.uid
+               })
+
+      # HIGH-IMPACT: FAILED from READY, with its own guard satisfied.
+      assert {:error, :changed_by_uid_required} =
+               TaskStore.transition_task(Repo, company.uid, task.uid, "FAILED", %{
+                 changed_by_uid: nil,
+                 failure_reason: "Blocked at the start."
+               })
+
+      {:ok, _} = TaskStore.assign_agent(Repo, company.uid, task.uid, agent.uid, human.uid)
+
+      # CONTROLLED: IN_PROGRESS from ASSIGNED.
+      assert {:error, :changed_by_uid_required} = do_transition(Repo, company.uid, task.uid, "IN_PROGRESS", nil)
+
+      {:ok, _} = do_transition(Repo, company.uid, task.uid, "IN_PROGRESS", human.uid)
+
+      # CONTROLLED: WAITING from IN_PROGRESS, with its own guard satisfied.
+      assert {:error, :changed_by_uid_required} =
+               TaskStore.transition_task(Repo, company.uid, task.uid, "WAITING", %{
+                 changed_by_uid: nil,
+                 metadata: %{"waiting_reason" => "Blocked on an external answer."}
+               })
+
+      # CONTROLLED: REVIEW from IN_PROGRESS.
+      assert {:error, :changed_by_uid_required} = do_transition(Repo, company.uid, task.uid, "REVIEW", nil)
+
+      # HIGH-IMPACT: COMPLETED from IN_PROGRESS.
+      assert {:error, :changed_by_uid_required} = do_transition(Repo, company.uid, task.uid, "COMPLETED", nil)
+
+      # None of the refusals moved the Task, so the same valid walk still works.
+      assert Repo.get!(Ankole.WorkHierarchy.Task, task.id).status == "IN_PROGRESS"
+    end
+
     # ─── B14-T1 ───
 
     test "B14-T1 active same-Company changer allows lifecycle transition", %{company: company, task: task, human: human} do
