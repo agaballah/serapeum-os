@@ -84,6 +84,25 @@ defmodule Ankole.W3.ActionAssuranceTest do
     cap
   end
 
+  # A-3 requires a Capability for CONTROLLED and HIGH-IMPACT assurance. Tests
+  # whose subject is classification, Approval, or receipt fidelity now need one
+  # that binds the exact action/resource/risk they already assert.
+  defp bound_capability(company_uid, holder_uid, issuer_uid, action, risk_class, extra \\ %{}) do
+    capability_fixture(company_uid, holder_uid, issuer_uid, %{
+      action: action,
+      resource: "workspace:default",
+      risk_class: risk_class
+    })
+    |> then(fn cap ->
+      if Enum.empty?(extra) do
+        cap
+      else
+        {:ok, rebound} = Capability.changeset(cap, extra) |> Repo.update()
+        rebound
+      end
+    end)
+  end
+
   defp transact(fun) do
     Repo.transact(fn repo -> fun.(repo) end)
   end
@@ -138,9 +157,11 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "create_task")
 
+      cap = bound_capability(company.uid, holder.uid, issuer.uid, "create_task", "CONTROLLED")
+
       assert {:ok, context} =
                ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "create_task", "workspace:default"
+                 Ankole.Repo, company.uid, holder.uid, "create_task", "workspace:default", cap.uid
                )
 
       assert context.risk_class == "CONTROLLED"
@@ -156,11 +177,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
 
-      # Approval is required for HIGH-IMPACT, so this will fail at that stage
-      # But we can still check that classification happened correctly
+      # A-3: HIGH-IMPACT needs both a Capability and an Approval, and the
+      # Capability stage runs first, so this still stops at the Approval
+      # requirement. Classification has already succeeded by that point.
+      cap = bound_capability(company.uid, holder.uid, issuer.uid, "cancel_task", "HIGH-IMPACT")
+
       assert {:error, :approval_required} =
                ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "cancel_task", "workspace:default"
+                 Ankole.Repo, company.uid, holder.uid, "cancel_task", "workspace:default", cap.uid
                )
     end
   end
@@ -279,9 +303,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
 
+      # A-3: with a valid Capability in place, the failure is now specifically
+      # the missing Approval rather than the missing Capability.
+      cap = bound_capability(company.uid, holder.uid, issuer.uid, "cancel_task", "HIGH-IMPACT")
+
       assert {:error, :approval_required} =
                ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "cancel_task", "workspace:default"
+                 Ankole.Repo, company.uid, holder.uid, "cancel_task", "workspace:default", cap.uid
                )
     end
 
@@ -309,17 +337,25 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _approved} =
                ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
 
+      # A-3: HIGH-IMPACT needs both controls, and the Capability must carry the
+      # exact Approval binding that assurance will validate it against.
+      cap =
+        bound_capability(company.uid, holder.uid, owner.uid, "cancel_task", "HIGH-IMPACT", %{
+          approval_uid: approval.uid
+        })
+
       assert {:ok, context} =
                ActionAssurance.assure(
                  Ankole.Repo, company.uid, holder.uid, "cancel_task",
-                 "workspace:default", nil, approval_uid: approval.uid
+                 "workspace:default", cap.uid, approval_uid: approval.uid
                )
 
       assert context.risk_class == "HIGH-IMPACT"
       assert context.approval_uid == approval.uid
+      assert context.capability_uid == cap.uid
     end
 
-    test "does not require approval for CONTROLLED actions" do
+    test "CONTROLLED requires a Capability but still does not require an Approval" do
       %{principal: owner} = human_fixture()
       company = company_fixture(owner.uid)
       %{principal: holder} = human_fixture(uid: "w3-p5-cont-h")
@@ -329,10 +365,23 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "create_task")
 
-      assert {:ok, _} =
+      # A-3 split the two controls apart. Approval is still not demanded at
+      # CONTROLLED, but a Capability now is.
+      assert {:error, :capability_required} =
                ActionAssurance.assure(
                  Ankole.Repo, company.uid, holder.uid, "create_task", "workspace:default"
                )
+
+      cap = bound_capability(company.uid, holder.uid, issuer.uid, "create_task", "CONTROLLED")
+
+      assert {:ok, context} =
+               ActionAssurance.assure(
+                 Ankole.Repo, company.uid, holder.uid, "create_task", "workspace:default", cap.uid
+               )
+
+      # No Approval was supplied and none was needed.
+      assert context.approval_uid == nil
+      assert context.risk_class == "CONTROLLED"
     end
   end
 
@@ -645,10 +694,15 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       assert {:ok, _} = ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
 
+      cap =
+        bound_capability(company.uid, holder.uid, owner.uid, "cancel_task", "HIGH-IMPACT", %{
+          approval_uid: approval.uid
+        })
+
       {:ok, context} =
         ActionAssurance.assure(
           Ankole.Repo, company.uid, holder.uid, "cancel_task",
-          "workspace:default", nil, approval_uid: approval.uid
+          "workspace:default", cap.uid, approval_uid: approval.uid
         )
 
       assert context.approval_uid == approval.uid
@@ -1774,10 +1828,15 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       assert {:ok, _} = ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
 
+      cap =
+        bound_capability(company.uid, holder.uid, owner.uid, "cancel_task", "HIGH-IMPACT", %{
+          approval_uid: approval.uid
+        })
+
       {:ok, context} =
         ActionAssurance.assure(
           Ankole.Repo, company.uid, holder.uid, "cancel_task",
-          "workspace:default", nil, approval_uid: approval.uid
+          "workspace:default", cap.uid, approval_uid: approval.uid
         )
 
       # A real Approval passed the independence check, so the claim is earned.
@@ -1997,10 +2056,15 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
 
+      cap =
+        bound_capability(company.uid, holder.uid, owner.uid, "cancel_task", "HIGH-IMPACT", %{
+          approval_uid: "w3-b6-missing-approval"
+        })
+
       assert {:error, :approval_invalid} =
                ActionAssurance.assure(
                  Ankole.Repo, company.uid, holder.uid, "cancel_task",
-                 "workspace:default", nil, approval_uid: "w3-b6-missing-approval"
+                 "workspace:default", cap.uid, approval_uid: "w3-b6-missing-approval"
                )
     end
 

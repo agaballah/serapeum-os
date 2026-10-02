@@ -45,6 +45,9 @@ defmodule Ankole.W3.P8TransactionContractTest do
   @resource "workspace:default"
   @risk_class "CONTROLLED"
 
+  # A-3 permits a nil Capability only on ROUTINE actions.
+  @read_action "list_company_tasks"
+
   # The committed order. A future change that moves consumption ahead of the
   # mutation changes this list and fails the ordering tests below, which is the
   # point of pinning it here rather than only in prose.
@@ -139,14 +142,33 @@ defmodule Ankole.W3.P8TransactionContractTest do
       issuer: issuer,
       capability: capability,
       capability_uid: capability.uid,
+      action: @action,
       task_uid: "a7-task-#{suffix}"
     }
   end
 
+  # A-3 makes a nil Capability legal only for ROUTINE actions. This branch
+  # therefore assures a permitted ROUTINE read while the transaction body still
+  # performs a real W2 write, so the proof stays the one it always was: that the
+  # lock, revalidation, and consumption steps are skipped and that a write plus
+  # its receipt still commit together, or not at all. It is not a claim that a
+  # nil-Capability mutation is reachable; under Policy B it is not.
   defp capability_less_context(context) do
     suffix = System.unique_integer([:positive])
 
-    Map.merge(context, %{capability: nil, capability_uid: nil, task_uid: "a7-task-#{suffix}"})
+    grant_fixture(
+      context.principal.uid,
+      context.company.uid,
+      "workspace:**",
+      @read_action
+    )
+
+    Map.merge(context, %{
+      capability: nil,
+      capability_uid: nil,
+      action: @read_action,
+      task_uid: "a7-task-#{suffix}"
+    })
   end
 
   # ─── the approved contract, expressed once ─────────────────────────────────
@@ -170,7 +192,7 @@ defmodule Ankole.W3.P8TransactionContractTest do
            Repo,
            company_uid,
            principal_uid,
-           @action,
+           context.action,
            @resource,
            capability_uid,
            assure_opts
@@ -442,7 +464,7 @@ defmodule Ankole.W3.P8TransactionContractTest do
 
   # ─── A7-7: capability-less branch ─────────────────────────────────────────
 
-  describe "capability-less branch (A-3 remains undecided)" do
+  describe "capability-less branch (Policy B permits nil on ROUTINE only)" do
     test "A7-7a the mutation and the receipt still commit together" do
       context = capability_less_context(controlled_context())
 
@@ -461,6 +483,13 @@ defmodule Ankole.W3.P8TransactionContractTest do
       assert [_only_receipt] = company_receipts(context.company.uid)
       assert [%ActionReceipt{capability_uid: nil}] = company_receipts(context.company.uid)
       assert %ActionReceipt{} = ActionAssurance.fetch_receipt(Repo, receipt.receipt_uid)
+
+      # A-3: the nil Capability was legal here only because the assured action
+      # is ROUTINE. The receipt must record that truth, not a CONTROLLED claim.
+      persisted = ActionAssurance.fetch_receipt(Repo, receipt.receipt_uid)
+      assert persisted.intent_action == @read_action
+      assert persisted.risk_class == "ROUTINE"
+      assert persisted.capability_uid == nil
     end
 
     test "A7-7b a failed receipt still rolls the mutation back" do

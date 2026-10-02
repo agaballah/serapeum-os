@@ -100,8 +100,9 @@ defmodule Ankole.W3.ActionAssurance do
   - `principal_uid` — the requesting Principal
   - `action` — the action identifier (will be normalized)
   - `resource` — the exact resource target
-  - `capability_uid` — an existing Capability to validate (nullable for
-    ROUTINE actions where the architecture permits AuthZ-only paths)
+  - `capability_uid` — an existing Capability to validate. Nullable only for
+    ROUTINE actions, which may run on AuthZ alone; CONTROLLED and HIGH-IMPACT
+    actions return `{:error, :capability_required}` when it is nil
   - `opts` — optional `:approval_uid`, `:postcondition_expected` map
 
   Returns `{:ok, assurance_context}` when the full chain passes, or
@@ -167,6 +168,7 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
       {:error, :unknown_action} -> {:error, :unknown_action}
       {:error, :authz_denied} -> {:error, :authz_denied}
       {:error, :capability_invalid} -> {:error, :capability_invalid}
+      {:error, :capability_required} -> {:error, :capability_required}
       {:error, :unsupported_restriction} -> {:error, :unsupported_restriction}
       {:error, :approval_required} -> {:error, :approval_required}
       {:error, :approval_invalid} -> {:error, :approval_invalid}
@@ -284,7 +286,13 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
 
   defp authz_decision_allow, do: "ALLOW"
 
-  defp check_capability(_repo, _company_uid, nil, _action, _principal, _resource, _risk, _approval, _scope, _constraints), do: :ok
+  defp check_capability(_repo, _company_uid, nil, _action, _principal, _resource, risk_class, _approval, _scope, _constraints) do
+    if requires_capability?(risk_class) do
+      {:error, :capability_required}
+    else
+      :ok
+    end
+  end
 
   defp check_capability(repo, company_uid, capability_uid, action, principal_uid, resource, risk_class, approval_uid, scope, constraints) do
     case CapabilityService.validate_capability(repo, company_uid, capability_uid, action: action, principal_uid: principal_uid, resource: resource, risk_class: risk_class, approval_uid: approval_uid, scope: scope, constraints: constraints) do
@@ -310,6 +318,13 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
 
   defp requires_approval?("HIGH-IMPACT"), do: true
   defp requires_approval?(_), do: false
+
+  # A-3 policy: every catalogued mutation outcome needs delegated, bounded,
+  # single-use authority. Only ROUTINE reads run on AuthZ alone. A missing
+  # Capability is distinct from a bad one, so this only answers presence.
+  defp requires_capability?("CONTROLLED"), do: true
+  defp requires_capability?("HIGH-IMPACT"), do: true
+  defp requires_capability?(_), do: false
 
   defp check_approval_independence(_repo, _company_uid, nil, _principal_uid, _action, _resource, _risk), do: :ok
 
