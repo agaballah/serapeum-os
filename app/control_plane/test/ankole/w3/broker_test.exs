@@ -33,14 +33,17 @@ defmodule Ankole.W3.BrokerTest do
     {:ok, company} =
       %Company{}
       |> Company.changeset(
-        Map.merge(%{
-          uid: "w3-p7-company-#{suffix}",
-          name: "w3-p7-company-#{suffix}",
-          display_name: "W3 P7 Test Company",
-          status: :active,
-          metadata: %{},
-          owner_principal_uid: owner_uid
-        }, attrs)
+        Map.merge(
+          %{
+            uid: "w3-p7-company-#{suffix}",
+            name: "w3-p7-company-#{suffix}",
+            display_name: "W3 P7 Test Company",
+            status: :active,
+            metadata: %{},
+            owner_principal_uid: owner_uid
+          },
+          attrs
+        )
       )
       |> Repo.insert()
 
@@ -64,20 +67,23 @@ defmodule Ankole.W3.BrokerTest do
     {:ok, cap} =
       %Capability{}
       |> Capability.changeset(
-        Map.merge(%{
-          uid: "w3-p7-cap-#{suffix}",
-          company_uid: company_uid,
-          principal_uid: principal_uid,
-          action: "list_company_tasks",
-          resource: "workspace:default",
-          status: :active,
-          risk_class: "ROUTINE",
-          issued_at: ~U[2026-09-27T10:00:00Z],
-          issued_by_principal_uid: issuer_uid,
-          scope: %{},
-          constraints: %{},
-          metadata: %{}
-        }, attrs)
+        Map.merge(
+          %{
+            uid: "w3-p7-cap-#{suffix}",
+            company_uid: company_uid,
+            principal_uid: principal_uid,
+            action: "list_company_tasks",
+            resource: "workspace:default",
+            status: :active,
+            risk_class: "ROUTINE",
+            issued_at: ~U[2026-09-27T10:00:00Z],
+            issued_by_principal_uid: issuer_uid,
+            scope: %{},
+            constraints: %{},
+            metadata: %{}
+          },
+          attrs
+        )
       )
       |> Repo.insert()
 
@@ -145,7 +151,17 @@ defmodule Ankole.W3.BrokerTest do
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, holder.uid)
 
       assert {:error, :authority_missing} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", nil, nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil,
+                 nil,
+                 %{},
+                 nil
+               )
     end
 
     test "T.3 returns authority_missing when capability_uid is empty string" do
@@ -156,7 +172,17 @@ defmodule Ankole.W3.BrokerTest do
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, holder.uid)
 
       assert {:error, :authority_missing} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "", nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 "",
+                 nil,
+                 %{},
+                 nil
+               )
     end
 
     test "T.4 returns authority_invalid for nonexistent capability" do
@@ -167,7 +193,17 @@ defmodule Ankole.W3.BrokerTest do
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, holder.uid)
 
       assert {:error, :authority_invalid} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "nonexistent-capability", nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 "nonexistent-capability",
+                 nil,
+                 %{},
+                 nil
+               )
     end
   end
 
@@ -184,11 +220,27 @@ defmodule Ankole.W3.BrokerTest do
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, issuer.uid)
 
       past = DateTime.add(DateTime.utc_now(), -86400, :second)
-      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{uid: "w3-p7-t5-cap", expires_at: past})
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          uid: "w3-p7-t5-cap",
+          expires_at: past
+        })
+
       CapabilityStore.expire_capability(Repo, company.uid, cap.uid)
 
       assert {:error, :authority_expired} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", cap.uid, nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 cap.uid,
+                 nil,
+                 %{},
+                 nil
+               )
     end
   end
 
@@ -201,14 +253,24 @@ defmodule Ankole.W3.BrokerTest do
       %{principal: holder} = human_fixture(uid: "w3-p7-t6-h")
       %{principal: issuer} = human_fixture(uid: "w3-p7-t6-i")
 
-      assert       {:ok, _} = MembershipStore.add_member(Repo, company.uid, holder.uid)
+      assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, holder.uid)
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, issuer.uid)
 
       cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{uid: "w3-p7-t6-cap"})
       CapabilityStore.revoke_capability(Repo, company.uid, cap.uid, holder.uid)
 
       assert {:error, :authority_revoked} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", cap.uid, nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 cap.uid,
+                 nil,
+                 %{},
+                 nil
+               )
     end
   end
 
@@ -226,10 +288,24 @@ defmodule Ankole.W3.BrokerTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
       grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
 
-      _cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{uid: "w3-p7-t8-cap", action: "list_company_tasks"})
+      _cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          uid: "w3-p7-t8-cap",
+          action: "list_company_tasks"
+        })
 
       assert {:error, :authority_action_mismatch} =
-               Mock.execute(Repo, company.uid, holder.uid, "cancel_task", "workspace:default", "w3-p7-t8-cap", nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 "w3-p7-t8-cap",
+                 nil,
+                 %{},
+                 nil
+               )
     end
   end
 
@@ -245,10 +321,24 @@ defmodule Ankole.W3.BrokerTest do
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, holder.uid)
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, issuer.uid)
 
-      _cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{uid: "w3-p7-t9-cap", resource: "workspace:specific"})
+      _cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          uid: "w3-p7-t9-cap",
+          resource: "workspace:specific"
+        })
 
       assert {:error, :authority_resource_mismatch} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "w3-p7-t9-cap", nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 "w3-p7-t9-cap",
+                 nil,
+                 %{},
+                 nil
+               )
     end
   end
 
@@ -264,10 +354,24 @@ defmodule Ankole.W3.BrokerTest do
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, holder.uid)
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, issuer.uid)
 
-      _cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{uid: "w3-p7-t10-cap", constraints: %{target_id: "x"}})
+      _cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          uid: "w3-p7-t10-cap",
+          constraints: %{target_id: "x"}
+        })
 
       assert {:error, :scope_exceeded} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "w3-p7-t10-cap", nil, %{other_key: "value"}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 "w3-p7-t10-cap",
+                 nil,
+                 %{other_key: "value"},
+                 nil
+               )
     end
   end
 
@@ -287,7 +391,17 @@ defmodule Ankole.W3.BrokerTest do
       Mock.set_target_state(company.uid, "workspace:default", %{version: 1})
 
       assert {:error, :target_state_changed} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "w3-p7-t11a-cap", nil, %{}, %{version: 2})
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 "w3-p7-t11a-cap",
+                 nil,
+                 %{},
+                 %{version: 2}
+               )
     end
 
     test "T.11b allows when target state matches" do
@@ -303,7 +417,17 @@ defmodule Ankole.W3.BrokerTest do
       Mock.set_target_state(company.uid, "workspace:default", %{version: 1})
 
       assert {:ok, result} =
-               Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "w3-p7-t11b-cap", nil, %{}, %{version: 1})
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 "w3-p7-t11b-cap",
+                 nil,
+                 %{},
+                 %{version: 1}
+               )
 
       assert result.success == true
     end
@@ -318,14 +442,34 @@ defmodule Ankole.W3.BrokerTest do
       %{principal: outsider} = human_fixture(uid: "w3-p7-t12-out")
 
       assert {:error, :principal_not_in_company} =
-               Mock.execute(Repo, company_b.uid, outsider.uid, "list_company_tasks", "workspace:default", nil, nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company_b.uid,
+                 outsider.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil,
+                 nil,
+                 %{},
+                 nil
+               )
     end
 
     test "T.12b rejects nil company_uid" do
       %{principal: holder} = human_fixture(uid: "w3-p7-t12b-h")
 
       assert {:error, :company_scope_mismatch} =
-               Mock.execute(Repo, nil, holder.uid, "list_company_tasks", "workspace:default", nil, nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 nil,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil,
+                 nil,
+                 %{},
+                 nil
+               )
     end
   end
 
@@ -342,14 +486,37 @@ defmodule Ankole.W3.BrokerTest do
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, approver.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
 
-      approval = approval_fixture(company.uid, holder.uid, "cancel_task", "workspace:default", "HIGH-IMPACT")
+      approval =
+        approval_fixture(
+          company.uid,
+          holder.uid,
+          "cancel_task",
+          "workspace:default",
+          "HIGH-IMPACT"
+        )
+
       ApprovalStore.approve_approval(Repo, company.uid, approval.uid, approver.uid)
 
-      _cap = capability_fixture(company.uid, holder.uid, approver.uid, %{uid: "w3-p7-t14-cap", action: "cancel_task", risk_class: "HIGH-IMPACT"})
+      _cap =
+        capability_fixture(company.uid, holder.uid, approver.uid, %{
+          uid: "w3-p7-t14-cap",
+          action: "cancel_task",
+          risk_class: "HIGH-IMPACT"
+        })
 
       # No approval param passed → approval_required for HIGH-IMPACT capability
       assert {:error, :approval_required} =
-               Mock.execute(Repo, company.uid, holder.uid, "cancel_task", "workspace:default", "w3-p7-t14-cap", nil, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 "w3-p7-t14-cap",
+                 nil,
+                 %{},
+                 nil
+               )
     end
 
     test "T.14b accepts with valid independent approval" do
@@ -362,13 +529,37 @@ defmodule Ankole.W3.BrokerTest do
       assert {:ok, _} = MembershipStore.add_member(Repo, company.uid, approver.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
 
-      approval = approval_fixture(company.uid, holder.uid, "cancel_task", "workspace:default", "HIGH-IMPACT")
+      approval =
+        approval_fixture(
+          company.uid,
+          holder.uid,
+          "cancel_task",
+          "workspace:default",
+          "HIGH-IMPACT"
+        )
+
       ApprovalStore.approve_approval(Repo, company.uid, approval.uid, approver.uid)
 
-      _cap = capability_fixture(company.uid, holder.uid, approver.uid, %{uid: "w3-p7-t14b-cap", action: "cancel_task", risk_class: "HIGH-IMPACT", approval_uid: approval.uid})
+      _cap =
+        capability_fixture(company.uid, holder.uid, approver.uid, %{
+          uid: "w3-p7-t14b-cap",
+          action: "cancel_task",
+          risk_class: "HIGH-IMPACT",
+          approval_uid: approval.uid
+        })
 
       assert {:ok, result} =
-               Mock.execute(Repo, company.uid, holder.uid, "cancel_task", "workspace:default", "w3-p7-t14b-cap", approval.uid, %{}, nil)
+               Mock.execute(
+                 Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 "w3-p7-t14b-cap",
+                 approval.uid,
+                 %{},
+                 nil
+               )
 
       assert result.success == true
     end
@@ -389,7 +580,17 @@ defmodule Ankole.W3.BrokerTest do
       _cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{uid: "w3-p7-t15-cap"})
 
       {:ok, result} =
-        Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "w3-p7-t15-cap", nil, %{}, nil)
+        Mock.execute(
+          Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default",
+          "w3-p7-t15-cap",
+          nil,
+          %{},
+          nil
+        )
 
       assert {:ok, cached} = Mock.resolve(result.execution_uid)
       assert cached.execution_uid == result.execution_uid
@@ -413,15 +614,40 @@ defmodule Ankole.W3.BrokerTest do
       _cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{uid: "w3-p7-r1-cap"})
 
       {:ok, context} =
-        ActionAssurance.assure(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "w3-p7-r1-cap")
+        ActionAssurance.assure(
+          Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default",
+          "w3-p7-r1-cap",
+          # The assurance chain derives the intent fingerprint itself, so a
+          # company-scoped read declares only the input that read binds.
+          intent_input: %{}
+        )
 
       {:ok, result} =
-        Mock.execute(Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", "w3-p7-r1-cap", nil, %{}, nil)
+        Mock.execute(
+          Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default",
+          "w3-p7-r1-cap",
+          nil,
+          %{},
+          nil
+        )
 
       context_with_broker = Map.put(context, :broker_name, "mock")
 
       assert {:ok, receipt} =
-               ActionAssurance.finalize_assurance(Repo, context_with_broker, result.success, result.output)
+               ActionAssurance.finalize_assurance(
+                 Repo,
+                 context_with_broker,
+                 result.success,
+                 result.output
+               )
 
       assert receipt.broker_name == "mock"
       assert receipt.capability_uid == "w3-p7-r1-cap"

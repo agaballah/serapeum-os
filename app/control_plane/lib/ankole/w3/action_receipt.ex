@@ -17,8 +17,8 @@ defmodule Ankole.W3.ActionReceipt do
   distinguishes three states so a reader is never misled by an absent value:
 
   - **Established.** `intent_action`, `intent_resource`, `risk_class`,
-    `receipt_uid`, and `inserted_at` are derived by the system before the row
-    is written.
+    `receipt_uid`, `params_hash`, and `inserted_at` are derived by the system
+    before the row is written.
   - **Established when present.** `capability_uid`, `approval_uid`,
     `principal_uid`, and `company_uid` are proved only when the caller
     supplied them and the corresponding validation passed. `nil` is a
@@ -80,6 +80,11 @@ defmodule Ankole.W3.ActionReceipt do
     # execution signal. A `false` default would claim every receipt's action
     # succeeded, which is exactly as fabricated as asserting `true`.
     field :execution_failed, :boolean
+    # Established. `ActionAssurance` derives this fingerprint itself from the
+    # complete action input and seals it into the context, so a receipt records
+    # which effective values the assurance actually bound. It is required for
+    # every receipt this code writes; only historical rows predate it.
+    field :params_hash, :string
 
     belongs_to :principal, Principal,
       foreign_key: :principal_uid,
@@ -128,11 +133,14 @@ defmodule Ankole.W3.ActionReceipt do
       :postcondition_verified,
       :verified_at,
       :result_output,
-      :execution_failed
+      :execution_failed,
+      :params_hash
     ])
     # `precondition_status` and `approval_independent` are intentionally
     # absent: no precondition is evaluated and no independence check runs when
     # no Approval exists, so requiring them would force a fabricated fact.
+    # `params_hash` is the opposite case: every assurance derives one, so a
+    # receipt written from an assurance always carries it.
     |> validate_required([
       :receipt_uid,
       :intent_action,
@@ -140,7 +148,8 @@ defmodule Ankole.W3.ActionReceipt do
       :principal_uid,
       :company_uid,
       :risk_class,
-      :authz_decision
+      :authz_decision,
+      :params_hash
     ])
     |> validate_inclusion(:risk_class, @canonical_risk_classes)
     |> validate_inclusion(:authz_decision, @authz_decisions)
@@ -153,5 +162,6 @@ defmodule Ankole.W3.ActionReceipt do
     |> check_constraint(:risk_class, name: :action_receipts_risk_class_valid)
     |> check_constraint(:authz_decision, name: :action_receipts_authz_decision_valid)
     |> check_constraint(:precondition_status, name: :action_receipts_precondition_valid)
+    |> check_constraint(:params_hash, name: :action_receipts_params_hash_format)
   end
 end

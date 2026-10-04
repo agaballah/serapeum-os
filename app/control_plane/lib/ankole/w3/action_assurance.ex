@@ -39,6 +39,21 @@ defmodule Ankole.W3.ActionAssurance do
   cannot hand-build a context and assert a decision, an Approval, or an
   outcome the system never made.
 
+  Intent fingerprint
+  ------------------
+  `params_hash` is derived here, not accepted from the caller. The caller
+  supplies the complete action input through `opts[:intent_input]`; this module
+  hands it to `IntentParameters`, which decides which values are bound and
+  computes the digest itself, and this module then seals the result. A caller
+  cannot present a digest it computed, and a bare `params_hash` option is not
+  read at all.
+
+  That derivation is the last stage of the chain. Action and risk, AuthZ,
+  Capability requirement and validation, and Approval requirement and
+  validation all run first, so an authority decision is still reached before
+  the shape of the intent is examined. A caller gains nothing by sending a
+  malformed intent to probe an earlier gate.
+
   Fields no stage establishes stay `nil`. `precondition_status`,
   `approval_independent`, and `postcondition_verified` are `nil` unless a real
   check produced them, and `execution_failed` is `nil` because the bounded
@@ -64,6 +79,7 @@ defmodule Ankole.W3.ActionAssurance do
   alias Ankole.W3.ApprovalStore
   alias Ankole.W3.AuthZ, as: W3AuthZ
   alias Ankole.W3.CapabilityService
+  alias Ankole.W3.IntentParameters
   alias Ankole.W3.Resource
   alias Ankole.W3.RestrictionEvaluator
   alias Ankole.W3.RiskClassifier
@@ -89,7 +105,8 @@ defmodule Ankole.W3.ActionAssurance do
     :approval_uid,
     :approval_independent,
     :capability_uid,
-    :postcondition_expected
+    :postcondition_expected,
+    :params_hash
   ]
 
   @doc """
@@ -103,11 +120,20 @@ defmodule Ankole.W3.ActionAssurance do
   - `capability_uid` — an existing Capability to validate. Nullable only for
     ROUTINE actions, which may run on AuthZ alone; CONTROLLED and HIGH-IMPACT
     actions return `{:error, :capability_required}` when it is nil
-  - `opts` — optional `:approval_uid`, `:postcondition_expected` map
+  - `opts` — optional `:approval_uid`, `:postcondition_expected` map,
+    `:intent_input`
+
+  `opts[:intent_input]` is the complete input map for the action, including any
+  actor field the action declares. Its `:company_uid` is ignored in favour of
+  the positional argument, which is authoritative. `IntentParameters` decides
+  which of those values the fingerprint binds and computes the digest, so the
+  caller never supplies a fingerprint. An unknown action, an unknown key, or a
+  missing required key fails with `{:error, {:intent_parameters, reason}}`
+  after every authority stage above has already passed.
 
   Returns `{:ok, assurance_context}` when the full chain passes, or
-  `{:error, reason_atom}` at the first failing stage. No database
-  persistence occurs during assurance.
+  `{:error, reason}` at the first failing stage. No database persistence
+  occurs during assurance.
 
   The returned context contains all fields needed for later receipt
   finalization. The caller must pass it unchanged to
@@ -121,24 +147,56 @@ defmodule Ankole.W3.ActionAssurance do
           String.t(),
           String.t() | nil,
           keyword()
-        ) :: {:ok, map()} | {:error, atom()}
-def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\ nil, opts \\ []) do
+        ) :: {:ok, map()} | {:error, atom() | tuple()}
+  def assure(
+        repo,
+        company_uid,
+        principal_uid,
+        action,
+        resource,
+        capability_uid \\ nil,
+        opts \\ []
+      ) do
     approval_uid = Keyword.get(opts, :approval_uid)
     postcondition_expected = Keyword.get(opts, :postcondition_expected, %{})
     scope = Keyword.get(opts, :scope, %{})
     constraints = Keyword.get(opts, :constraints, %{})
     risk_context = Keyword.get(opts, :risk_context, %{})
+    intent_input = Keyword.get(opts, :intent_input)
 
     with {:ok, normalized_action} <- normalize_action(action),
          {:ok, normalized_resource} <- normalize_resource(resource),
          :ok <- check_resource_exact(normalized_resource),
          {:ok, risk_class} <- classify_risk(normalized_action, normalized_resource, risk_context),
          :ok <- check_not_prohibited(risk_class),
-         {:ok, authz_decision} <- check_authz(repo, company_uid, principal_uid, normalized_action, normalized_resource),
-         :ok <- check_capability(repo, company_uid, capability_uid, normalized_action, principal_uid, normalized_resource, risk_class, approval_uid, scope, constraints),
+         {:ok, authz_decision} <-
+           check_authz(repo, company_uid, principal_uid, normalized_action, normalized_resource),
+         :ok <-
+           check_capability(
+             repo,
+             company_uid,
+             capability_uid,
+             normalized_action,
+             principal_uid,
+             normalized_resource,
+             risk_class,
+             approval_uid,
+             scope,
+             constraints
+           ),
          :ok <- check_execution_restrictions(scope, constraints),
          :ok <- check_approval_requirement(risk_class, approval_uid),
-         :ok <- check_approval_independence(repo, company_uid, approval_uid, principal_uid, normalized_action, normalized_resource, risk_class),
+         :ok <-
+           check_approval_independence(
+             repo,
+             company_uid,
+             approval_uid,
+             principal_uid,
+             normalized_action,
+             normalized_resource,
+             risk_class
+           ),
+         {:ok, params_hash} <- build_intent(normalized_action, company_uid, intent_input),
          {:ok, receipt_uid} <- generate_receipt_uid() do
       # `approval_independent` reports whether an Approval was actually
       # validated. Without one there is no independence to claim, so the field
@@ -159,7 +217,8 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
         approval_independent: approval_independent,
         capability_uid: capability_uid,
         broker_name: nil,
-        postcondition_expected: postcondition_expected
+        postcondition_expected: postcondition_expected,
+        params_hash: params_hash
       }
 
       {:ok, Map.put(context, :seal, seal_context(context))}
@@ -174,6 +233,7 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
       {:error, :approval_invalid} -> {:error, :approval_invalid}
       {:error, :invalid_action} -> {:error, :invalid_action}
       {:error, :invalid_resource} -> {:error, :invalid_resource}
+      {:error, {:intent_parameters, _reason} = reason} -> {:error, reason}
     end
   end
 
@@ -266,6 +326,7 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
     case Resource.normalize_exact(resource) do
       {:ok, normalized} ->
         if normalized == resource, do: :ok, else: {:error, :invalid_resource}
+
       {:error, _} ->
         {:error, :invalid_resource}
     end
@@ -286,7 +347,18 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
 
   defp authz_decision_allow, do: "ALLOW"
 
-  defp check_capability(_repo, _company_uid, nil, _action, _principal, _resource, risk_class, _approval, _scope, _constraints) do
+  defp check_capability(
+         _repo,
+         _company_uid,
+         nil,
+         _action,
+         _principal,
+         _resource,
+         risk_class,
+         _approval,
+         _scope,
+         _constraints
+       ) do
     if requires_capability?(risk_class) do
       {:error, :capability_required}
     else
@@ -294,8 +366,27 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
     end
   end
 
-  defp check_capability(repo, company_uid, capability_uid, action, principal_uid, resource, risk_class, approval_uid, scope, constraints) do
-    case CapabilityService.validate_capability(repo, company_uid, capability_uid, action: action, principal_uid: principal_uid, resource: resource, risk_class: risk_class, approval_uid: approval_uid, scope: scope, constraints: constraints) do
+  defp check_capability(
+         repo,
+         company_uid,
+         capability_uid,
+         action,
+         principal_uid,
+         resource,
+         risk_class,
+         approval_uid,
+         scope,
+         constraints
+       ) do
+    case CapabilityService.validate_capability(repo, company_uid, capability_uid,
+           action: action,
+           principal_uid: principal_uid,
+           resource: resource,
+           risk_class: risk_class,
+           approval_uid: approval_uid,
+           scope: scope,
+           constraints: constraints
+         ) do
       :ok -> :ok
       {:error, _} -> {:error, :capability_invalid}
     end
@@ -326,17 +417,58 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
   defp requires_capability?("HIGH-IMPACT"), do: true
   defp requires_capability?(_), do: false
 
-  defp check_approval_independence(_repo, _company_uid, nil, _principal_uid, _action, _resource, _risk), do: :ok
+  defp check_approval_independence(
+         _repo,
+         _company_uid,
+         nil,
+         _principal_uid,
+         _action,
+         _resource,
+         _risk
+       ),
+       do: :ok
 
-  defp check_approval_independence(repo, company_uid, approval_uid, principal_uid, action, resource, risk_class) do
-    case ApprovalStore.validate_for_assurance(repo, company_uid, approval_uid, principal_uid, action, resource, risk_class) do
+  defp check_approval_independence(
+         repo,
+         company_uid,
+         approval_uid,
+         principal_uid,
+         action,
+         resource,
+         risk_class
+       ) do
+    case ApprovalStore.validate_for_assurance(
+           repo,
+           company_uid,
+           approval_uid,
+           principal_uid,
+           action,
+           resource,
+           risk_class
+         ) do
       :ok -> :ok
       {:error, _} -> {:error, :approval_invalid}
     end
   end
 
+  # The fingerprint is derived, never accepted. The positional `company_uid`
+  # is authoritative, so a caller cannot widen the scope by putting another one
+  # in its input map. Anything that is not a complete input map fails here,
+  # which is why a bare digest option cannot stand in for one.
+  defp build_intent(action, company_uid, input) when is_map(input) do
+    case IntentParameters.build(action, Map.put(input, :company_uid, company_uid)) do
+      {:ok, intent} -> {:ok, intent.params_hash}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_intent(_action, _company_uid, _input),
+    do: {:error, {:intent_parameters, :missing_parameter}}
+
   defp generate_receipt_uid() do
-    seed = "#{:crypto.strong_rand_bytes(16) |> Base.encode16()}-#{System.unique_integer([:positive])}"
+    seed =
+      "#{:crypto.strong_rand_bytes(16) |> Base.encode16()}-#{System.unique_integer([:positive])}"
+
     {:ok, seed}
   end
 
@@ -430,7 +562,8 @@ def assure(repo, company_uid, principal_uid, action, resource, capability_uid \\
       :approval_uid,
       :approval_independent,
       :capability_uid,
-      :postcondition_expected
+      :postcondition_expected,
+      :params_hash
     ]
     |> Enum.reduce_while({:ok, %{}}, fn key, {:ok, acc} ->
       case Map.fetch(context, key) do

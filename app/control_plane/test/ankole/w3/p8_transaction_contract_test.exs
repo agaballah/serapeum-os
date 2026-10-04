@@ -176,6 +176,26 @@ defmodule Ankole.W3.P8TransactionContractTest do
   # `opts` injects a failure at exactly one step so each rollback case can be
   # proven without altering the order every other test depends on. `:mutate`,
   # `:consume`, and `:receipt` each default to the real repository call.
+  # The assurance chain derives the intent fingerprint from the complete action
+  # input. These cases test the transaction contract rather than the
+  # fingerprint, so each action under test gets a minimal valid input.
+  defp intent(action) when is_binary(action) do
+    case action do
+      "create_task" ->
+        %{
+          uid: "w3-a7-intent-task",
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Assured objective",
+          scope_text: "Assured scope",
+          required_outcome_text: "Assured outcome",
+          acceptance_criteria_text: "Assured criteria"
+        }
+
+      _read_action ->
+        %{}
+    end
+  end
+
   defp controlled_action(context, opts \\ []) do
     company_uid = context.company.uid
     principal_uid = context.principal.uid
@@ -185,6 +205,7 @@ defmodule Ankole.W3.P8TransactionContractTest do
     assure_opts =
       Keyword.put_new(opts, :scope, %{})
       |> Keyword.put_new(:constraints, %{})
+      |> Keyword.put_new_lazy(:intent_input, fn -> intent(context.action) end)
 
     reset_trace()
 
@@ -333,7 +354,10 @@ defmodule Ankole.W3.P8TransactionContractTest do
              TaskStore.fetch_task(Repo, context.company.uid, context.task_uid)
 
     assert %Capability{status: :consumed} = Repo.get_by(Capability, uid: context.capability_uid)
-    assert %ActionReceipt{capability_uid: capability_uid} = ActionAssurance.fetch_receipt(Repo, receipt.receipt_uid)
+
+    assert %ActionReceipt{capability_uid: capability_uid} =
+             ActionAssurance.fetch_receipt(Repo, receipt.receipt_uid)
+
     assert capability_uid == context.capability_uid
     assert [_only_receipt] = company_receipts(context.company.uid)
   end
@@ -347,7 +371,11 @@ defmodule Ankole.W3.P8TransactionContractTest do
     # the unique index after assurance has already succeeded.
     {:ok, _existing} =
       Repo.transact(fn tx ->
-        TaskStore.create_task(tx, context.company.uid, task_attrs(context.task_uid, context.principal.uid))
+        TaskStore.create_task(
+          tx,
+          context.company.uid,
+          task_attrs(context.task_uid, context.principal.uid)
+        )
       end)
 
     assert {{:error, %Ecto.Changeset{}}, order} = controlled_action(context)
@@ -436,7 +464,11 @@ defmodule Ankole.W3.P8TransactionContractTest do
     assert {:ok, %Capability{status: :consumed}} =
              Repo.transact(fn tx ->
                {:ok, locked} =
-                 CapabilityStore.fetch_capability_for_update(tx, context.company.uid, context.capability_uid)
+                 CapabilityStore.fetch_capability_for_update(
+                   tx,
+                   context.company.uid,
+                   context.capability_uid
+                 )
 
                CapabilityService.consume_locked(tx, locked)
              end)
@@ -521,7 +553,11 @@ defmodule Ankole.W3.P8TransactionContractTest do
     outer =
       Repo.transact(fn tx ->
         {:ok, locked} =
-          CapabilityStore.fetch_capability_for_update(tx, context.company.uid, context.capability_uid)
+          CapabilityStore.fetch_capability_for_update(
+            tx,
+            context.company.uid,
+            context.capability_uid
+          )
 
         {:ok, _consumed} = CapabilityService.consume_locked(tx, locked)
 
@@ -706,7 +742,11 @@ defmodule Ankole.W3.P8TransactionContractConcurrencyTest do
   defp tx_a_body(fixture, binding, context, parent, mode) do
     fn tx ->
       with {:ok, locked} <-
-             CapabilityStore.fetch_capability_for_update(tx, fixture.company_uid, fixture.capability_uid) do
+             CapabilityStore.fetch_capability_for_update(
+               tx,
+               fixture.company_uid,
+               fixture.capability_uid
+             ) do
         send(parent, {:tx_a_locked, self()})
 
         receive do
@@ -718,7 +758,11 @@ defmodule Ankole.W3.P8TransactionContractConcurrencyTest do
         with :ok <- CapabilityService.validate_prefetched_capability(tx, locked),
              :ok <- CapabilityService.validate_exact_binding(locked, binding),
              {:ok, _mutation} <-
-               TaskStore.create_task(tx, fixture.company_uid, task_attrs(fixture.task_a_uid, fixture.creator_uid)),
+               TaskStore.create_task(
+                 tx,
+                 fixture.company_uid,
+                 task_attrs(fixture.task_a_uid, fixture.creator_uid)
+               ),
              {:ok, _consumed} <- CapabilityService.consume_locked(tx, locked) do
           if mode == :commit do
             {:ok, _receipt} = ActionAssurance.finalize_assurance(tx, context, false, %{})
@@ -739,14 +783,22 @@ defmodule Ankole.W3.P8TransactionContractConcurrencyTest do
       started = System.monotonic_time(:millisecond)
 
       with {:ok, locked_b} <-
-             CapabilityStore.fetch_capability_for_update(tx, fixture.company_uid, fixture.capability_uid) do
+             CapabilityStore.fetch_capability_for_update(
+               tx,
+               fixture.company_uid,
+               fixture.capability_uid
+             ) do
         waited = System.monotonic_time(:millisecond) - started
         send(parent, {:tx_b_observed, locked_b.status, waited})
 
         with :ok <- CapabilityService.validate_prefetched_capability(tx, locked_b),
              :ok <- CapabilityService.validate_exact_binding(locked_b, binding),
              {:ok, _mutation} <-
-               TaskStore.create_task(tx, fixture.company_uid, task_attrs(fixture.task_b_uid, fixture.creator_uid)),
+               TaskStore.create_task(
+                 tx,
+                 fixture.company_uid,
+                 task_attrs(fixture.task_b_uid, fixture.creator_uid)
+               ),
              {:ok, _consumed} <- CapabilityService.consume_locked(tx, locked_b),
              {:ok, _receipt} <- ActionAssurance.finalize_assurance(tx, context, false, %{}) do
           {:ok, :committed}
@@ -867,7 +919,15 @@ defmodule Ankole.W3.P8TransactionContractConcurrencyTest do
         fixture.principal_uid,
         @action,
         @resource,
-        fixture.capability_uid
+        fixture.capability_uid,
+        intent_input: %{
+          uid: "w3-a7-concurrency-task",
+          origin_kind: "OWNER_REQUEST",
+          objective_text: "Assured objective",
+          scope_text: "Assured scope",
+          required_outcome_text: "Assured outcome",
+          acceptance_criteria_text: "Assured criteria"
+        }
       )
 
     context

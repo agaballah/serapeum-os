@@ -129,6 +129,78 @@ defmodule Ankole.W3.CapabilityRequirementTest do
     approval
   end
 
+  # The assurance chain derives the intent fingerprint from the complete action
+  # input, so a case that reaches that stage must declare its action's
+  # arguments. These cases test the Capability requirement rather than the
+  # fingerprint, so the wrapper supplies a minimal valid input for the action.
+  defp intent(action) when is_binary(action) do
+    identity = %{
+      uid: "w3-a3-intent-task",
+      origin_kind: "OWNER_REQUEST",
+      objective_text: "Assured objective",
+      scope_text: "Assured scope",
+      required_outcome_text: "Assured outcome",
+      acceptance_criteria_text: "Assured criteria"
+    }
+
+    case action do
+      "create_task" ->
+        identity
+
+      "create_goal" ->
+        %{uid: "w3-a3-intent-goal", title: "Assured goal"}
+
+      "cancel_task" ->
+        %{task_uid: "w3-a3-intent-task", cancellation_reason: "Assured reason"}
+
+      "fail_task" ->
+        %{task_uid: "w3-a3-intent-task", failure_reason: "Assured reason"}
+
+      "assign_agent" ->
+        %{task_uid: "w3-a3-intent-task", agent_uid: "w3-a3-intent-agent"}
+
+      "set_child_policy" ->
+        %{task_uid: "w3-a3-intent-task", new_policy: "INDEPENDENT"}
+
+      # Every catalogued read names the identity its own W2 read takes.
+      "list_mission_tasks" ->
+        %{mission_uid: "w3-a3-intent-mission"}
+
+      "list_dependencies" ->
+        %{task_uid: "w3-a3-intent-task"}
+
+      "list_children" ->
+        %{parent_task_uid: "w3-a3-intent-task"}
+
+      "fetch_delegation" ->
+        %{delegation_uid: "w3-a3-intent-delegation"}
+
+      "fetch_result" ->
+        %{result_uid: "w3-a3-intent-result"}
+
+      "fetch_current_result" ->
+        %{task_uid: "w3-a3-intent-task"}
+
+      "list_task_results" ->
+        %{task_uid: "w3-a3-intent-task"}
+
+      "list_task_reviews" ->
+        %{task_uid: "w3-a3-intent-task"}
+
+      "list_result_reviews" ->
+        %{result_uid: "w3-a3-intent-result"}
+
+      "fetch_review" ->
+        %{review_uid: "w3-a3-intent-review"}
+
+      "validate_assignment_eligibility" ->
+        %{task_uid: "w3-a3-intent-task", agent_uid: "w3-a3-intent-agent"}
+
+      _company_wide_read ->
+        %{}
+    end
+  end
+
   defp assure(world, capability_uid, opts \\ []) do
     ActionAssurance.assure(
       Repo,
@@ -137,7 +209,7 @@ defmodule Ankole.W3.CapabilityRequirementTest do
       world.action,
       @resource,
       capability_uid,
-      opts
+      Keyword.put_new_lazy(opts, :intent_input, fn -> intent(world.action) end)
     )
   end
 
@@ -239,7 +311,12 @@ defmodule Ankole.W3.CapabilityRequirementTest do
   test "A3-5d a Capability held by another Principal is invalid, not merely absent" do
     world = world("create_task")
 
-    cap = bound(world, %{action: "create_task", risk_class: "CONTROLLED", principal_uid: world.issuer.uid})
+    cap =
+      bound(world, %{
+        action: "create_task",
+        risk_class: "CONTROLLED",
+        principal_uid: world.issuer.uid
+      })
 
     assert {:error, :capability_invalid} = assure(world, cap.uid)
   end
@@ -255,7 +332,8 @@ defmodule Ankole.W3.CapabilityRequirementTest do
   test "A3-5f a Capability bound to the wrong resource is invalid" do
     world = world("create_task")
 
-    cap = bound(world, %{action: "create_task", risk_class: "CONTROLLED", resource: "workspace:other"})
+    cap =
+      bound(world, %{action: "create_task", risk_class: "CONTROLLED", resource: "workspace:other"})
 
     assert {:error, :capability_invalid} = assure(world, cap.uid)
   end
@@ -446,7 +524,8 @@ defmodule Ankole.W3.CapabilityRequirementTest do
 
   test "A3-8a every CONTROLLED transition target requires a Capability" do
     for target <- @controlled_targets do
-      assert {:ok, "CONTROLLED"} = RiskClassifier.classify("transition_task", nil, %{to_status: target})
+      assert {:ok, "CONTROLLED"} =
+               RiskClassifier.classify("transition_task", nil, %{to_status: target})
 
       world = world("transition_task")
 
@@ -458,7 +537,8 @@ defmodule Ankole.W3.CapabilityRequirementTest do
 
   test "A3-8b every HIGH-IMPACT transition target requires a Capability" do
     for target <- @high_impact_targets do
-      assert {:ok, "HIGH-IMPACT"} = RiskClassifier.classify("transition_task", nil, %{to_status: target})
+      assert {:ok, "HIGH-IMPACT"} =
+               RiskClassifier.classify("transition_task", nil, %{to_status: target})
 
       world = world("transition_task")
 

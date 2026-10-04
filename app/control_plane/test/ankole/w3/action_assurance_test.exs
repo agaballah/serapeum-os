@@ -2,8 +2,8 @@ defmodule Ankole.W3.ActionAssuranceTest do
   @moduledoc """
   Tests for the P5 Action Assurance Core.
 
-  Covers the MA-06 §16 assurance decision chain and the locked receipt
-  lifecycle: assure → (broker executes) → verify → finalize_receipt.
+  Covers the MA-06 Â§16 assurance decision chain and the locked receipt
+  lifecycle: assure â†’ (broker executes) â†’ verify â†’ finalize_receipt.
   Does not touch brokers (P7), approval workflow (P6), or W2 stores (P8).
   """
 
@@ -21,11 +21,242 @@ defmodule Ankole.W3.ActionAssuranceTest do
   alias Ankole.W3.ApprovalStore
   alias Ankole.W3.Resource
   alias Ankole.W3.RiskClassifier
+  alias Ankole.W3.IntentParameters
   alias Ankole.W3.ActionAssurance
 
   import Ankole.PrincipalsFixtures
 
-  # ─── fixtures ─────────────────────────────────────────────────────────────
+  # â”€â”€â”€ fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  # ─── PARAM-SCHEMA failure precedence ─────────────────────────────────────
+
+  describe "intent input failure precedence" do
+    setup do
+      %{principal: owner} = human_fixture()
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "w3-p5-prec-h")
+      %{principal: outsider} = human_fixture(uid: "w3-p5-prec-out")
+      %{principal: approver} = human_fixture(uid: "w3-p5-prec-a")
+
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
+      assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, approver.uid)
+
+      %{company: company, holder: holder, outsider: outsider, approver: approver}
+    end
+
+    defp approved_approval(company, holder, approver, suffix) do
+      assert {:ok, approval} =
+               ApprovalStore.create_approval(Ankole.Repo, %{
+                 uid: "w3-p5-prec-approval-#{suffix}",
+                 company_uid: company.uid,
+                 requester_uid: holder.uid,
+                 action: "cancel_task",
+                 resource: "workspace:default",
+                 risk_class: "HIGH-IMPACT"
+               })
+
+      assert {:ok, approved} =
+               ApprovalStore.approve_approval(
+                 Ankole.Repo,
+                 company.uid,
+                 approval.uid,
+                 approver.uid
+               )
+
+      approved
+    end
+
+    test "an AuthZ denial is reached before a malformed intent is examined", ctx do
+      %{company: company, holder: holder, outsider: outsider} = ctx
+      malformed = %{surprise: "not a declared key"}
+
+      # A ROUTINE read needs no Capability, so AuthZ is the only authority gate
+      # between the action check and the intent.
+      assert {:error, :authz_denied} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 outsider.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil,
+                 intent_input: malformed
+               )
+
+      # The same unusable intent for a permitted Principal now reaches the
+      # intent stage, so the AuthZ decision alone separates the two.
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      assert {:error, {:intent_parameters, {:unknown_parameter, :surprise}}} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil,
+                 intent_input: malformed
+               )
+    end
+
+    test "a missing Capability is reached before a malformed intent for CONTROLLED", ctx do
+      %{company: company, holder: holder, approver: approver} = ctx
+      grant_fixture(holder.uid, company.uid, "workspace:**", "create_task")
+
+      cap =
+        bound_capability(company.uid, holder.uid, approver.uid, "create_task", "CONTROLLED")
+
+      assert {:error, :capability_required} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "create_task",
+                 "workspace:default",
+                 nil,
+                 intent_input: %{surprise: "not a declared key"}
+               )
+
+      assert {:error, {:intent_parameters, {:unknown_parameter, :surprise}}} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "create_task",
+                 "workspace:default",
+                 cap.uid,
+                 intent_input: %{surprise: "not a declared key"}
+               )
+    end
+
+    test "a missing Approval is reached before a malformed intent for HIGH-IMPACT", ctx do
+      %{company: company, holder: holder, approver: approver} = ctx
+      grant_fixture(holder.uid, company.uid, "workspace:**", "cancel_task")
+
+      unbound =
+        bound_capability(company.uid, holder.uid, approver.uid, "cancel_task", "HIGH-IMPACT")
+
+      assert {:error, :approval_required} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 unbound.uid,
+                 intent_input: %{surprise: "not a declared key"}
+               )
+
+      # With a real Approval the Capability must carry that binding, and only
+      # then does the unusable intent become the thing that is reported.
+      approval = approved_approval(company, holder, approver, "bound")
+
+      bound =
+        bound_capability(company.uid, holder.uid, approver.uid, "cancel_task", "HIGH-IMPACT", %{
+          approval_uid: approval.uid
+        })
+
+      assert {:error, {:intent_parameters, {:unknown_parameter, :surprise}}} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 bound.uid,
+                 approval_uid: approval.uid,
+                 intent_input: %{surprise: "not a declared key"}
+               )
+    end
+
+    test "a bare caller-supplied digest does not satisfy the requirement", ctx do
+      %{company: company, holder: holder} = ctx
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      digest = "v1:" <> String.duplicate("b", 64)
+
+      # The option is never read, so it cannot stand in for the input.
+      assert {:error, {:intent_parameters, :missing_parameter}} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil,
+                 params_hash: digest
+               )
+
+      assert {:error, {:intent_parameters, {:unknown_parameter, :surprise}}} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil,
+                 params_hash: digest,
+                 intent_input: %{surprise: "not a declared key"}
+               )
+    end
+
+    test "the sealed fingerprint is the one the intent derives", ctx do
+      %{company: company, holder: holder} = ctx
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      assert {:ok, context} =
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default"
+               )
+
+      assert {:ok, expected} =
+               IntentParameters.build("list_company_tasks", %{company_uid: company.uid})
+
+      assert context.params_hash == expected.params_hash
+      assert {:ok, receipt} = ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
+      assert receipt.params_hash == expected.params_hash
+    end
+
+    test "an authoritative company UID overrides one supplied in the input", ctx do
+      %{company: company, holder: holder} = ctx
+      grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
+
+      assert {:ok, context} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil,
+                 intent_input: %{company_uid: "some-other-company"}
+               )
+
+      assert {:ok, expected} =
+               IntentParameters.build("list_company_tasks", %{company_uid: company.uid})
+
+      assert context.params_hash == expected.params_hash
+    end
+
+    test "an unknown action is refused before the intent is read", ctx do
+      %{company: company, holder: holder} = ctx
+
+      assert {:error, :unknown_action} =
+               ActionAssurance.assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "not_a_real_action",
+                 "workspace:default",
+                 nil,
+                 intent_input: %{surprise: "not a declared key"}
+               )
+    end
+  end
 
   defp company_fixture(owner_uid, attrs \\ %{}) do
     suffix = System.unique_integer([:positive])
@@ -33,14 +264,17 @@ defmodule Ankole.W3.ActionAssuranceTest do
     {:ok, company} =
       %Company{}
       |> Company.changeset(
-        Map.merge(%{
-          uid: "w3-p5-company-#{suffix}",
-          name: "w3-p5-company-#{suffix}",
-          display_name: "W3 P5 Test Company",
-          status: :active,
-          metadata: %{},
-          owner_principal_uid: owner_uid
-        }, attrs)
+        Map.merge(
+          %{
+            uid: "w3-p5-company-#{suffix}",
+            name: "w3-p5-company-#{suffix}",
+            display_name: "W3 P5 Test Company",
+            status: :active,
+            metadata: %{},
+            owner_principal_uid: owner_uid
+          },
+          attrs
+        )
       )
       |> Repo.insert()
 
@@ -64,20 +298,23 @@ defmodule Ankole.W3.ActionAssuranceTest do
     {:ok, cap} =
       %Capability{}
       |> Capability.changeset(
-        Map.merge(%{
-          uid: "w3-p5-cap-#{suffix}",
-          company_uid: company_uid,
-          principal_uid: principal_uid,
-          action: "workspace_read",
-          resource: "workspace:default",
-          status: :active,
-          risk_class: "ROUTINE",
-          issued_at: ~U[2026-09-26T10:00:00Z],
-          issued_by_principal_uid: issuer_uid,
-          scope: %{},
-          constraints: %{},
-          metadata: %{}
-        }, attrs)
+        Map.merge(
+          %{
+            uid: "w3-p5-cap-#{suffix}",
+            company_uid: company_uid,
+            principal_uid: principal_uid,
+            action: "workspace_read",
+            resource: "workspace:default",
+            status: :active,
+            risk_class: "ROUTINE",
+            issued_at: ~U[2026-09-26T10:00:00Z],
+            issued_by_principal_uid: issuer_uid,
+            scope: %{},
+            constraints: %{},
+            metadata: %{}
+          },
+          attrs
+        )
       )
       |> Repo.insert()
 
@@ -107,7 +344,115 @@ defmodule Ankole.W3.ActionAssuranceTest do
     Repo.transact(fn repo -> fun.(repo) end)
   end
 
-  # ─── normalize_action ────────────────────────────────────────────────────
+  # The assurance chain derives the intent fingerprint from the complete action
+  # input, so a call that reaches that stage must declare the arguments its
+  # action binds. These cases test the chain rather than the fingerprint, so the
+  # wrapper below supplies a minimal valid input for the action under test. A
+  # case that cares about the fingerprint passes its own `intent_input`.
+  defp intent(action) when is_binary(action) do
+    task = %{
+      uid: "w3-p5-intent-task",
+      origin_kind: "OWNER_REQUEST",
+      objective_text: "Assured objective",
+      scope_text: "Assured scope",
+      required_outcome_text: "Assured outcome",
+      acceptance_criteria_text: "Assured criteria"
+    }
+
+    case String.downcase(String.trim(action)) do
+      "create_task" ->
+        task
+
+      "create_child_task" ->
+        Map.merge(task, %{parent_task_uid: "w3-p5-intent-parent", origin_kind: "DELEGATION"})
+
+      "create_goal" ->
+        %{uid: "w3-p5-intent-goal", title: "Assured goal"}
+
+      "create_mission" ->
+        %{
+          uid: "w3-p5-intent-mission",
+          content: "Assured mandate",
+          assigned_agent_uid: "w3-p5-intent-agent"
+        }
+
+      "create_revision" ->
+        %{
+          mission_uid: "w3-p5-intent-mission",
+          content: "Assured mandate",
+          assigned_agent_uid: "w3-p5-intent-agent"
+        }
+
+      "create_result" ->
+        %{task_uid: "w3-p5-intent-task", result_uid: "w3-p5-intent-result", workflow_run_id: 1}
+
+      "create_review" ->
+        %{
+          task_uid: "w3-p5-intent-task",
+          result_uid: "w3-p5-intent-result",
+          criteria_text: "Assured criteria",
+          verdict: "APPROVED",
+          rationale_text: "Assured rationale"
+        }
+
+      "invalidate_review" ->
+        %{review_uid: "w3-p5-intent-review", reason: "Assured reason"}
+
+      "transition_task" ->
+        %{task_uid: "w3-p5-intent-task", to_status: "READY"}
+
+      "assign_agent" ->
+        %{task_uid: "w3-p5-intent-task", agent_uid: "w3-p5-intent-agent"}
+
+      "cancel_task" ->
+        %{task_uid: "w3-p5-intent-task", cancellation_reason: "Assured reason"}
+
+      "fail_task" ->
+        %{task_uid: "w3-p5-intent-task", failure_reason: "Assured reason"}
+
+      "set_dependency" ->
+        %{task_uid: "w3-p5-intent-task", depends_on_task_uid: "w3-p5-intent-other"}
+
+      "remove_dependency" ->
+        %{task_uid: "w3-p5-intent-task", depends_on_task_uid: "w3-p5-intent-other"}
+
+      "set_child_policy" ->
+        %{task_uid: "w3-p5-intent-task", new_policy: "INDEPENDENT"}
+
+      "create_delegation" ->
+        %{source_task_uid: "w3-p5-intent-task", scope_description: "Assured scope"}
+
+      _read_action ->
+        %{}
+    end
+  end
+
+  defp assure(
+         repo,
+         company_uid,
+         principal_uid,
+         action,
+         resource,
+         capability_uid \\ nil,
+         opts \\ []
+       ) do
+    ActionAssurance.assure(
+      repo,
+      company_uid,
+      principal_uid,
+      action,
+      resource,
+      capability_uid,
+      Keyword.put_new_lazy(opts, :intent_input, fn -> intent(action) end)
+    )
+  end
+
+  # A fingerprint in the one shape a receipt accepts. These cases write a
+  # receipt directly rather than through an assurance, so they need a value
+  # that satisfies the column without deriving one.
+  defp sealed_fingerprint(_action), do: "v1:" <> String.duplicate("a", 64)
+
+  # â”€â”€â”€ normalize_action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "normalize_action" do
     test "lowercases the action string during assurance" do
@@ -121,8 +466,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       assert {:ok, context} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "List_Company_Tasks", "workspace:default"
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "List_Company_Tasks",
+                 "workspace:default"
                )
 
       assert context.intent_action == "list_company_tasks"
@@ -138,13 +487,17 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
 
       assert {:error, :invalid_action} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "", "workspace:default"
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "",
+                 "workspace:default"
                )
     end
   end
 
-  # ─── risk classification ─────────────────────────────────────────────────
+  # â”€â”€â”€ risk classification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "risk classification in assurance" do
     test "classifies a known CONTROLLED action" do
@@ -160,8 +513,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
       cap = bound_capability(company.uid, holder.uid, issuer.uid, "create_task", "CONTROLLED")
 
       assert {:ok, context} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "create_task", "workspace:default", cap.uid
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "create_task",
+                 "workspace:default",
+                 cap.uid
                )
 
       assert context.risk_class == "CONTROLLED"
@@ -183,13 +541,18 @@ defmodule Ankole.W3.ActionAssuranceTest do
       cap = bound_capability(company.uid, holder.uid, issuer.uid, "cancel_task", "HIGH-IMPACT")
 
       assert {:error, :approval_required} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "cancel_task", "workspace:default", cap.uid
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 cap.uid
                )
     end
   end
 
-  # ─── authz integration ────────────────────────────────────────────────────
+  # â”€â”€â”€ authz integration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "authz check" do
     test "allows when Principal has a matching grant" do
@@ -203,8 +566,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       assert {:ok, context} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default"
                )
 
       assert context.authz_decision == "ALLOW"
@@ -220,13 +587,17 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
 
       assert {:error, :authz_denied} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default"
                )
     end
   end
 
-  # ─── capability validation ───────────────────────────────────────────────
+  # â”€â”€â”€ capability validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "capability validation" do
     test "passes when no capability is provided" do
@@ -240,8 +611,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       assert {:ok, _} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default", nil
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default",
+                 nil
                )
     end
 
@@ -255,17 +631,22 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _m2} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "workspace_read")
 
-      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{
-        uid: "w3-p5-validcap-001",
-        action: "workspace_read",
-        resource: "workspace:default",
-        risk_class: "ROUTINE"
-      })
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          uid: "w3-p5-validcap-001",
+          action: "workspace_read",
+          resource: "workspace:default",
+          risk_class: "ROUTINE"
+        })
 
       assert {:ok, context} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "workspace_read",
-                 "workspace:default", cap.uid
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "workspace_read",
+                 "workspace:default",
+                 cap.uid
                )
 
       assert context.capability_uid == cap.uid
@@ -281,16 +662,20 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _m2} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "workspace_read")
 
-      # Nonexistent capability → capability_invalid
+      # Nonexistent capability â†’ capability_invalid
       assert {:error, :capability_invalid} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "workspace_read",
-                 "workspace:default", "nonexistent-capability"
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "workspace_read",
+                 "workspace:default",
+                 "nonexistent-capability"
                )
     end
   end
 
-  # ─── approval requirement ─────────────────────────────────────────────────
+  # â”€â”€â”€ approval requirement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "approval requirement" do
     test "requires approval for HIGH-IMPACT actions without approval_uid" do
@@ -308,8 +693,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
       cap = bound_capability(company.uid, holder.uid, issuer.uid, "cancel_task", "HIGH-IMPACT")
 
       assert {:error, :approval_required} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "cancel_task", "workspace:default", cap.uid
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 cap.uid
                )
     end
 
@@ -325,17 +715,22 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       # Create and approve an approval via P6
       assert {:ok, approval} =
-        ApprovalStore.create_approval(Ankole.Repo, %{
-          uid: "w3-p6-valid-001",
-          company_uid: company.uid,
-          requester_uid: holder.uid,
-          action: "cancel_task",
-          resource: "workspace:default",
-          risk_class: "HIGH-IMPACT"
-        })
+               ApprovalStore.create_approval(Ankole.Repo, %{
+                 uid: "w3-p6-valid-001",
+                 company_uid: company.uid,
+                 requester_uid: holder.uid,
+                 action: "cancel_task",
+                 resource: "workspace:default",
+                 risk_class: "HIGH-IMPACT"
+               })
 
       assert {:ok, _approved} =
-               ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
+               ApprovalStore.approve_approval(
+                 Ankole.Repo,
+                 company.uid,
+                 approval.uid,
+                 approver.uid
+               )
 
       # A-3: HIGH-IMPACT needs both controls, and the Capability must carry the
       # exact Approval binding that assurance will validate it against.
@@ -345,9 +740,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:ok, context} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "cancel_task",
-                 "workspace:default", cap.uid, approval_uid: approval.uid
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 cap.uid,
+                 approval_uid: approval.uid
                )
 
       assert context.risk_class == "HIGH-IMPACT"
@@ -368,15 +768,24 @@ defmodule Ankole.W3.ActionAssuranceTest do
       # A-3 split the two controls apart. Approval is still not demanded at
       # CONTROLLED, but a Capability now is.
       assert {:error, :capability_required} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "create_task", "workspace:default"
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "create_task",
+                 "workspace:default"
                )
 
       cap = bound_capability(company.uid, holder.uid, issuer.uid, "create_task", "CONTROLLED")
 
       assert {:ok, context} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "create_task", "workspace:default", cap.uid
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "create_task",
+                 "workspace:default",
+                 cap.uid
                )
 
       # No Approval was supplied and none was needed.
@@ -385,7 +794,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── company isolation ────────────────────────────────────────────────────
+  # â”€â”€â”€ company isolation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "company isolation" do
     test "deny cross-Company assurance" do
@@ -399,13 +808,17 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder_b.uid, company_b.uid, "workspace:**", "list_company_tasks")
 
       assert {:error, :authz_denied} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company_a.uid, holder_b.uid, "list_company_tasks", "workspace:default"
+               assure(
+                 Ankole.Repo,
+                 company_a.uid,
+                 holder_b.uid,
+                 "list_company_tasks",
+                 "workspace:default"
                )
     end
   end
 
-  # ─── receipt creation is deferred ────────────────────────────────────────
+  # â”€â”€â”€ receipt creation is deferred â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "receipt is created only after finalization" do
     test "assure succeeds without creating any ActionReceipt" do
@@ -419,8 +832,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       assert {:ok, _context} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "list_company_tasks",
+                 "workspace:default"
                )
 
       # No receipt should exist yet
@@ -439,15 +856,22 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       result_output = %{"items_count" => 42}
 
       assert {:ok, receipt} =
                ActionAssurance.finalize_assurance(
-                 Ankole.Repo, context, true, result_output
+                 Ankole.Repo,
+                 context,
+                 true,
+                 result_output
                )
 
       assert receipt.intent_action == "list_company_tasks"
@@ -478,8 +902,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       assert {:ok, receipt} =
@@ -501,8 +929,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       # Count receipts before finalization
@@ -529,20 +961,20 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       # These should all fail without creating receipts
       assert {:error, :authz_denied} =
-               ActionAssurance.assure(Ankole.Repo, company.uid, holder.uid, "create_task", "x")
+               assure(Ankole.Repo, company.uid, holder.uid, "create_task", "x")
 
       assert {:error, :invalid_action} =
-               ActionAssurance.assure(Ankole.Repo, company.uid, holder.uid, "", "x")
+               assure(Ankole.Repo, company.uid, holder.uid, "", "x")
 
       assert {:error, :invalid_resource} =
-               ActionAssurance.assure(Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "")
+               assure(Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "")
 
       final_count = length(ActionAssurance.list_company_receipts(Ankole.Repo, company.uid))
       assert final_count == initial_count
     end
   end
 
-  # ─── reject receipt creation without prior assurance ─────────────────────
+  # â”€â”€â”€ reject receipt creation without prior assurance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "finalize_assurance without prior assurance" do
     test "refuses a hand-built context and persists nothing" do
@@ -553,7 +985,9 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
 
       # A caller cannot hand-assemble a context. This map asserts an AuthZ
-      # decision and a precondition check that never ran.
+      # decision and a precondition check that never ran. It carries every
+      # field the receipt requires, so the refusal is the seal's and not a
+      # missing field.
       context = %{
         receipt_uid: "test-receipt-001",
         intent_action: "list_company_tasks",
@@ -567,7 +1001,8 @@ defmodule Ankole.W3.ActionAssuranceTest do
         approval_independent: true,
         capability_uid: nil,
         broker_name: nil,
-        postcondition_expected: %{}
+        postcondition_expected: %{},
+        params_hash: sealed_fingerprint("list_company_tasks")
       }
 
       assert {:error, :unverified_assurance_context} =
@@ -586,8 +1021,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       # Downgrading the risk class after the decision would let a HIGH-IMPACT
@@ -607,8 +1046,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       assert is_nil(context.approval_uid)
@@ -641,7 +1084,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── normalized values preserved through to receipt ──────────────────────
+  # â”€â”€â”€ normalized values preserved through to receipt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "normalized values preserved" do
     test "lowercased action and trimmed resource survive to receipt" do
@@ -653,8 +1096,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "  LIST_COMPANY_TASKS  ", " workspace:default "
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "  LIST_COMPANY_TASKS  ",
+          " workspace:default "
         )
 
       assert context.intent_action == "list_company_tasks"
@@ -668,7 +1115,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── approval binding preserved ──────────────────────────────────────────
+  # â”€â”€â”€ approval binding preserved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "approval binding preserved in receipt" do
     test "approval_uid is recorded in the receipt" do
@@ -692,7 +1139,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
           risk_class: "HIGH-IMPACT"
         })
 
-      assert {:ok, _} = ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
+      assert {:ok, _} =
+               ApprovalStore.approve_approval(
+                 Ankole.Repo,
+                 company.uid,
+                 approval.uid,
+                 approver.uid
+               )
 
       cap =
         bound_capability(company.uid, holder.uid, owner.uid, "cancel_task", "HIGH-IMPACT", %{
@@ -700,9 +1153,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "cancel_task",
-          "workspace:default", cap.uid, approval_uid: approval.uid
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "cancel_task",
+          "workspace:default",
+          cap.uid,
+          approval_uid: approval.uid
         )
 
       assert context.approval_uid == approval.uid
@@ -714,7 +1172,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── capability binding preserved ────────────────────────────────────────
+  # â”€â”€â”€ capability binding preserved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "capability binding preserved in receipt" do
     test "capability_uid is recorded in the receipt" do
@@ -727,16 +1185,21 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert {:ok, _m2} = MembershipStore.add_member(Ankole.Repo, company.uid, issuer.uid)
       grant_fixture(holder.uid, company.uid, "workspace:**", "workspace_read")
 
-      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{
-        uid: "w3-p5-cap-rec-001",
-        action: "workspace_read",
-        risk_class: "ROUTINE"
-      })
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          uid: "w3-p5-cap-rec-001",
+          action: "workspace_read",
+          risk_class: "ROUTINE"
+        })
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "workspace_read",
-          "workspace:default", cap.uid
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "workspace_read",
+          "workspace:default",
+          cap.uid
         )
 
       assert context.capability_uid == cap.uid
@@ -748,7 +1211,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── PROHIBITED actions never create receipts ────────────────────────────
+  # â”€â”€â”€ PROHIBITED actions never create receipts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "PROHIBITED action" do
     test "assure rejects PROHIBITED before any receipt is created" do
@@ -767,7 +1230,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── query helpers ────────────────────────────────────────────────────────
+  # â”€â”€â”€ query helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "fetch_receipt / list_company_receipts" do
     test "fetches a finalized receipt by UID" do
@@ -779,8 +1242,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       assert {:ok, _finalized} =
@@ -803,9 +1270,10 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, c1} =
-        ActionAssurance.assure(Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:one")
+        assure(Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:one")
+
       {:ok, c2} =
-        ActionAssurance.assure(Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:two")
+        assure(Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:two")
 
       assert {:ok, _} = ActionAssurance.finalize_assurance(Ankole.Repo, c1, true, %{})
       assert {:ok, _} = ActionAssurance.finalize_assurance(Ankole.Repo, c2, true, %{})
@@ -818,7 +1286,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── B-1: caller repository propagation ──────────────────────────────────
+  # â”€â”€â”€ B-1: caller repository propagation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "B-1 transaction-scoped repository" do
     test "B1-T1 assurance reads the caller's uncommitted grant, not the global view" do
@@ -841,8 +1309,9 @@ defmodule Ankole.W3.ActionAssuranceTest do
       try do
         Repo.transact(fn repo ->
           Grants.create_permission_grant(repo, grant)
+
           {:ok, _ctx} =
-            ActionAssurance.assure(
+            assure(
               repo,
               company.uid,
               holder.uid,
@@ -859,7 +1328,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       # The grant was rolled back; the global-assurance path denies.
       assert {:error, :authz_denied} =
-               ActionAssurance.assure(
+               assure(
                  Ankole.Repo,
                  company.uid,
                  holder.uid,
@@ -926,7 +1395,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       assert {:error, :authz_denied} =
                transact(fn repo ->
-                 ActionAssurance.assure(
+                 assure(
                    repo,
                    company.uid,
                    stranger.uid,
@@ -945,7 +1414,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       assert {:ok, context} =
                Repo.transact(fn repo ->
-                 ActionAssurance.assure(
+                 assure(
                    repo,
                    company.uid,
                    holder.uid,
@@ -959,7 +1428,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── boundary audit ──────────────────────────────────────────────────────
+  # â”€â”€â”€ boundary audit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "store boundary" do
     test "the assurance source has no dependency on W3AuthZ beyond the wrapper" do
@@ -1003,7 +1472,9 @@ defmodule Ankole.W3.ActionAssuranceTest do
     test "assure/6 body does not contain repo.insert" do
       source = File.read!("lib/ankole/w3/action_assurance.ex")
       # repo.insert should appear exactly once in save_receipt (called from finalize_assurance)
-      insert_count = String.split(source, "\n") |> Enum.count(&String.contains?(&1, "repo.insert"))
+      insert_count =
+        String.split(source, "\n") |> Enum.count(&String.contains?(&1, "repo.insert"))
+
       assert insert_count == 1
       # assure function exists and finalize_assurance exists
       assert String.contains?(source, "def assure(")
@@ -1022,9 +1493,9 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── B-4: exact binding through the full assurance chain ───────────────────
+  # â”€â”€â”€ B-4: exact binding through the full assurance chain â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  describe "assure/6 — B4 exact binding integration" do
+  describe "assure/6 â€” B4 exact binding integration" do
     setup do
       suffix = System.unique_integer([:positive])
       %{principal: owner} = human_fixture(uid: "b4-a-owner-#{suffix}")
@@ -1038,7 +1509,8 @@ defmodule Ankole.W3.ActionAssuranceTest do
       end
 
       # Canonical resources come only from Resource.build/3.
-      {:ok, task_resource} = Resource.build("transition_task", company.uid, %{task_uid: "task-b4"})
+      {:ok, task_resource} =
+        Resource.build("transition_task", company.uid, %{task_uid: "task-b4"})
 
       grant_fixture(holder.uid, company.uid, "#{task_resource}", "transition_task")
 
@@ -1059,11 +1531,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
       {:ok, approval} =
         ApprovalStore.create_approval(Repo, Map.merge(attrs, %{requester_uid: requester.uid}))
 
-      {:ok, _approved} = ApprovalStore.approve_approval(Repo, company.uid, approval.uid, approver.uid)
+      {:ok, _approved} =
+        ApprovalStore.approve_approval(Repo, company.uid, approval.uid, approver.uid)
+
       approval
     end
 
-    # A — transition to IN_PROGRESS recomputes CONTROLLED
+    # A â€” transition to IN_PROGRESS recomputes CONTROLLED
     test "B4-A transition to IN_PROGRESS recomputes CONTROLLED", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
@@ -1075,16 +1549,22 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:ok, ctx} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "IN_PROGRESS"}
                )
 
       assert ctx.risk_class == "CONTROLLED"
     end
 
-    # B — transition to COMPLETED recomputes HIGH-IMPACT
+    # B â€” transition to COMPLETED recomputes HIGH-IMPACT
     test "B4-B transition to COMPLETED recomputes HIGH-IMPACT", context do
-      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: resource
+      } = context
 
       approval =
         b4_approval(company, holder, approver, %{
@@ -1104,7 +1584,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:ok, ctx} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "COMPLETED"},
                  approval_uid: approval.uid
                )
@@ -1112,7 +1592,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert ctx.risk_class == "HIGH-IMPACT"
     end
 
-    # C — HIGH-IMPACT without Approval rejected
+    # C â€” HIGH-IMPACT without Approval rejected
     test "B4-C HIGH-IMPACT without Approval rejected", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
@@ -1124,14 +1604,20 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:error, :approval_required} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "COMPLETED"}
                )
     end
 
-    # D — Capability approval_uid != supplied approval_uid rejected
+    # D â€” Capability approval_uid != supplied approval_uid rejected
     test "B4-D Capability approval_uid differs from supplied approval_uid rejected", context do
-      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: resource
+      } = context
 
       supplied =
         b4_approval(company, holder, approver, %{
@@ -1151,15 +1637,21 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:error, :capability_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "COMPLETED"},
                  approval_uid: supplied.uid
                )
     end
 
-    # E — Approval action mismatch rejected
+    # E â€” Approval action mismatch rejected
     test "B4-E Approval action mismatch rejected", context do
-      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: resource
+      } = context
 
       approval =
         b4_approval(company, holder, approver, %{
@@ -1179,15 +1671,21 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:error, :approval_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "COMPLETED"},
                  approval_uid: approval.uid
                )
     end
 
-    # F — Approval resource mismatch rejected
+    # F â€” Approval resource mismatch rejected
     test "B4-F Approval resource mismatch rejected", context do
-      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: resource
+      } = context
 
       approval =
         b4_approval(company, holder, approver, %{
@@ -1207,16 +1705,25 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:error, :approval_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "COMPLETED"},
                  approval_uid: approval.uid
                )
     end
 
-    # G — Approval requester mismatch rejected
+    # G â€” Approval requester mismatch rejected
     test "B4-G Approval requester mismatch rejected", context do
-      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
-      %{principal: other_requester} = human_fixture(uid: "b4-g-other-#{System.unique_integer([:positive])}")
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: resource
+      } = context
+
+      %{principal: other_requester} =
+        human_fixture(uid: "b4-g-other-#{System.unique_integer([:positive])}")
+
       assert {:ok, _m} = MembershipStore.add_member(Repo, company.uid, other_requester.uid)
 
       approval =
@@ -1237,15 +1744,22 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:error, :approval_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "COMPLETED"},
                  approval_uid: approval.uid
                )
     end
 
-    # H — Approval RISK mismatch rejected (Catalog HIGH / Capability HIGH / Approval CONTROLLED)
-    test "B4-H Approval risk mismatch rejected when catalog and Capability are HIGH-IMPACT", context do
-      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+    # H â€” Approval RISK mismatch rejected (Catalog HIGH / Capability HIGH / Approval CONTROLLED)
+    test "B4-H Approval risk mismatch rejected when catalog and Capability are HIGH-IMPACT",
+         context do
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: resource
+      } = context
 
       # Catalog risk for transition_task to COMPLETED is HIGH-IMPACT.
       assert {:ok, "HIGH-IMPACT"} =
@@ -1295,13 +1809,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
                )
 
       assert {:error, :approval_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "COMPLETED"},
                  approval_uid: approval.uid
                )
     end
 
-    # I — scope mismatch through ActionAssurance rejected
+    # I â€” scope mismatch through ActionAssurance rejected
     test "B4-I scope mismatch rejected", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
@@ -1314,13 +1828,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:error, :capability_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  scope: %{"task_uid" => "task-somewhere-else"}
                )
     end
 
-    # J — constraints mismatch through ActionAssurance rejected
+    # J â€” constraints mismatch through ActionAssurance rejected
     test "B4-J constraints mismatch rejected", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
@@ -1333,21 +1847,21 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:error, :capability_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  constraints: %{"max_duration" => 60}
                )
     end
   end
 
-  # ─── B-16: fail-closed execution restriction gate ──────────────────────────
+  # â”€â”€â”€ B-16: fail-closed execution restriction gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   #
   # B-4 proves the caller's maps equal the Capability's stored maps. It does
   # not prove those maps restrict the operation, because the expected maps
   # arrive as caller options. B-16 refuses any non-empty map the system
   # cannot interpret, and it runs only after binding succeeds.
 
-  describe "assure/7 — B16 execution restriction gate" do
+  describe "assure/7 â€” B16 execution restriction gate" do
     setup do
       suffix = System.unique_integer([:positive])
       %{principal: owner} = human_fixture(uid: "b16-owner-#{suffix}")
@@ -1360,7 +1874,9 @@ defmodule Ankole.W3.ActionAssuranceTest do
         assert {:ok, _m} = MembershipStore.add_member(Repo, company.uid, principal.uid)
       end
 
-      {:ok, task_resource} = Resource.build("transition_task", company.uid, %{task_uid: "task-b16"})
+      {:ok, task_resource} =
+        Resource.build("transition_task", company.uid, %{task_uid: "task-b16"})
+
       {:ok, collection_resource} = Resource.build("create_task", company.uid, %{})
 
       grant_fixture(holder.uid, company.uid, task_resource, "transition_task")
@@ -1376,7 +1892,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
       }
     end
 
-    # B16-T8 — the supported pair must not disturb a normal assurance.
+    # B16-T8 â€” the supported pair must not disturb a normal assurance.
     test "B16-T8 empty scope and empty constraints remain successful", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
@@ -1390,7 +1906,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:ok, ctx} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  scope: %{},
                  constraints: %{}
@@ -1400,12 +1916,19 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert ctx.intent_resource == resource
     end
 
-    # B16-T9 — exact echoed non-empty scope passes B-4, then B-16 refuses.
+    # B16-T9 â€” exact echoed non-empty scope passes B-4, then B-16 refuses.
     test "B16-T9 exact echoed non-empty scope is refused after binding", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
       scope = %{"task_uid" => "task-b16"}
-      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{action: "transition_task", resource: resource, risk_class: "CONTROLLED", scope: scope})
+
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED",
+          scope: scope
+        })
 
       # Prove B-4 is satisfied by this exact pair, so the refusal cannot be
       # attributed to binding.
@@ -1421,7 +1944,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
                )
 
       assert {:error, :unsupported_restriction} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  scope: scope
                )
@@ -1453,13 +1976,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
                )
 
       assert {:error, :unsupported_restriction} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  constraints: constraints
                )
     end
 
-    # B16-T11 — echoing both maps cannot buy a bypass.
+    # B16-T11 â€” echoing both maps cannot buy a bypass.
     test "B16-T11 echoing both non-empty maps cannot bypass B-16", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
@@ -1477,7 +2000,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       # The caller replays exactly what the Capability stores.
       assert {:error, :unsupported_restriction} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  scope: cap.scope,
                  constraints: cap.constraints
@@ -1505,7 +2028,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
           })
 
         assert {:error, :unsupported_restriction} =
-                 ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, shaped.uid,
+                 assure(Repo, company.uid, holder.uid, "transition_task", resource, shaped.uid,
                    risk_context: %{to_status: "READY"},
                    scope: shaped.scope,
                    constraints: shaped.constraints
@@ -1516,14 +2039,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
       # ordering is deliberate and is what stops a caller from presenting a
       # restriction the Capability never carried.
       assert {:error, :capability_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  scope: %{"invented" => "by-caller"},
                  constraints: constraints
                )
     end
 
-    # B16-T12 — B-4 must fail first, and must not be relabelled.
+    # B16-T12 â€” B-4 must fail first, and must not be relabelled.
     test "B16-T12 B-4 scope mismatch fails before B-16 as capability_invalid", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
@@ -1549,14 +2072,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       # The boundary reports B-4, not B-16, because binding runs first.
       assert {:error, :capability_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  scope: %{"x" => 2}
                )
 
       # The same exact map passes B-4 and is then refused by B-16 instead.
       assert {:error, :unsupported_restriction} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  scope: %{"x" => 1}
                )
@@ -1586,21 +2109,27 @@ defmodule Ankole.W3.ActionAssuranceTest do
                )
 
       assert {:error, :capability_invalid} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  constraints: %{"x" => 2}
                )
 
       assert {:error, :unsupported_restriction} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  constraints: %{"x" => 1}
                )
     end
 
-    # B16-T14 — HIGH-IMPACT keeps its Approval contract with empty maps.
+    # B16-T14 â€” HIGH-IMPACT keeps its Approval contract with empty maps.
     test "B16-T14 HIGH-IMPACT with empty restrictions keeps the Approval contract", context do
-      %{company: company, holder: holder, issuer: issuer, approver: approver, task_resource: resource} = context
+      %{
+        company: company,
+        holder: holder,
+        issuer: issuer,
+        approver: approver,
+        task_resource: resource
+      } = context
 
       {:ok, approval} =
         ApprovalStore.create_approval(Repo, %{
@@ -1613,7 +2142,8 @@ defmodule Ankole.W3.ActionAssuranceTest do
           risk_class: "HIGH-IMPACT"
         })
 
-      {:ok, _approved} = ApprovalStore.approve_approval(Repo, company.uid, approval.uid, approver.uid)
+      {:ok, _approved} =
+        ApprovalStore.approve_approval(Repo, company.uid, approval.uid, approver.uid)
 
       cap =
         capability_fixture(company.uid, holder.uid, issuer.uid, %{
@@ -1641,14 +2171,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       # Missing Approval still fails on the Approval stage, not on B-16.
       assert {:error, :approval_required} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "cancel_task", resource, unbound.uid,
+               assure(Repo, company.uid, holder.uid, "cancel_task", resource, unbound.uid,
                  risk_context: %{},
                  scope: %{},
                  constraints: %{}
                )
 
       assert {:ok, ctx} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "cancel_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "cancel_task", resource, cap.uid,
                  risk_context: %{},
                  approval_uid: approval.uid,
                  scope: %{},
@@ -1663,24 +2193,35 @@ defmodule Ankole.W3.ActionAssuranceTest do
     test "B16-T15 CONTROLLED with empty restrictions remains green", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
-      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{action: "transition_task", resource: resource, risk_class: "CONTROLLED"})
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "transition_task",
+          resource: resource,
+          risk_class: "CONTROLLED"
+        })
 
       assert {:ok, ctx} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "IN_PROGRESS"}
                )
 
       assert ctx.risk_class == "CONTROLLED"
     end
 
-    # B16-T16 — collection authority is represented by its canonical Resource.
-    test "B16-T16 collection action with empty restrictions is valid under its collection Resource", context do
+    # B16-T16 â€” collection authority is represented by its canonical Resource.
+    test "B16-T16 collection action with empty restrictions is valid under its collection Resource",
+         context do
       %{company: company, holder: holder, issuer: issuer, collection_resource: resource} = context
 
-      cap = capability_fixture(company.uid, holder.uid, issuer.uid, %{action: "create_task", resource: resource, risk_class: "CONTROLLED"})
+      cap =
+        capability_fixture(company.uid, holder.uid, issuer.uid, %{
+          action: "create_task",
+          resource: resource,
+          risk_class: "CONTROLLED"
+        })
 
       assert {:ok, ctx} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "create_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "create_task", resource, cap.uid,
                  scope: %{},
                  constraints: %{}
                )
@@ -1690,7 +2231,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert ctx.intent_resource == "w2:v1/company/#{company.uid}/tasks"
     end
 
-    # B16-T17 — issuance and persistence are untouched by B-16.
+    # B16-T17 â€” issuance and persistence are untouched by B-16.
     test "B16-T17 non-empty restrictions still persist; only assurance is denied", context do
       %{company: company, holder: holder, issuer: issuer, task_resource: resource} = context
 
@@ -1726,7 +2267,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       # Only assurance is refused.
       assert {:error, :unsupported_restriction} =
-               ActionAssurance.assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
+               assure(Repo, company.uid, holder.uid, "transition_task", resource, cap.uid,
                  risk_context: %{to_status: "READY"},
                  scope: scope,
                  constraints: constraints
@@ -1734,7 +2275,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── B-16 integration boundaries ───────────────────────────────────────────
+  # â”€â”€â”€ B-16 integration boundaries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "B16 integration boundary" do
     @assurance_source File.read!("lib/ankole/w3/action_assurance.ex")
@@ -1743,8 +2284,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       chain = @assurance_source |> String.split("\n") |> Enum.map(&String.trim/1)
 
       capability_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_capability("))
-      restriction_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
-      approval_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_approval_requirement("))
+
+      restriction_index =
+        Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
+
+      approval_index =
+        Enum.find_index(chain, &String.contains?(&1, ":ok <- check_approval_requirement("))
 
       assert is_integer(capability_index)
       assert is_integer(restriction_index)
@@ -1759,14 +2304,17 @@ defmodule Ankole.W3.ActionAssuranceTest do
 
       risk_index = Enum.find_index(chain, &String.contains?(&1, "check_not_prohibited("))
       authz_index = Enum.find_index(chain, &String.contains?(&1, "check_authz("))
-      restriction_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
+
+      restriction_index =
+        Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
 
       assert risk_index < authz_index
       assert authz_index < restriction_index
     end
 
     test "B16 exposes unsupported_restriction at the assurance boundary" do
-      assert @assurance_source =~ "{:error, :unsupported_restriction} -> {:error, :unsupported_restriction}"
+      assert @assurance_source =~
+               "{:error, :unsupported_restriction} -> {:error, :unsupported_restriction}"
     end
 
     test "B16 cannot be skipped by omitting the Capability" do
@@ -1777,8 +2325,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
       # Capability cannot open a path around the gate.
       assert Enum.any?(chain, &String.contains?(&1, "check_capability(_repo, _company_uid, nil,"))
 
-      restriction_index = Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
-      receipt_index = Enum.find_index(chain, &String.contains?(&1, "{:ok, receipt_uid} <- generate_receipt_uid()"))
+      restriction_index =
+        Enum.find_index(chain, &String.contains?(&1, ":ok <- check_execution_restrictions("))
+
+      receipt_index =
+        Enum.find_index(
+          chain,
+          &String.contains?(&1, "{:ok, receipt_uid} <- generate_receipt_uid()")
+        )
 
       assert restriction_index < receipt_index
     end
@@ -1803,7 +2357,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── B-6 receipt truthfulness ────────────────────────────────────────────
+  # â”€â”€â”€ B-6 receipt truthfulness â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "B6 receipt truthfulness" do
     test "an APPROVED decision derives approval_independent from the real Approval" do
@@ -1826,7 +2380,13 @@ defmodule Ankole.W3.ActionAssuranceTest do
           risk_class: "HIGH-IMPACT"
         })
 
-      assert {:ok, _} = ApprovalStore.approve_approval(Ankole.Repo, company.uid, approval.uid, approver.uid)
+      assert {:ok, _} =
+               ApprovalStore.approve_approval(
+                 Ankole.Repo,
+                 company.uid,
+                 approval.uid,
+                 approver.uid
+               )
 
       cap =
         bound_capability(company.uid, holder.uid, owner.uid, "cancel_task", "HIGH-IMPACT", %{
@@ -1834,9 +2394,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "cancel_task",
-          "workspace:default", cap.uid, approval_uid: approval.uid
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "cancel_task",
+          "workspace:default",
+          cap.uid,
+          approval_uid: approval.uid
         )
 
       # A real Approval passed the independence check, so the claim is earned.
@@ -1858,8 +2423,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       refute context.approval_independent == true
@@ -1875,8 +2444,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       # The allow decision came from the real authorize call, not a constant.
@@ -1884,6 +2457,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
                ActionAssurance.finalize_assurance(Ankole.Repo, context, true, %{})
 
       assert receipt.authz_decision == context.authz_decision
+
       assert W3AuthZ.authorize(
                Repo,
                company.uid,
@@ -1903,8 +2477,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       assert {:ok, _first} =
@@ -1926,8 +2504,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       # Blank the action after assurance. The seal must refuse the edit, so
@@ -1949,7 +2531,8 @@ defmodule Ankole.W3.ActionAssuranceTest do
           principal_uid: "w3-b6-schema-p",
           company_uid: "w3-b6-schema-c",
           risk_class: "ROUTINE",
-          authz_decision: "ALLOW"
+          authz_decision: "ALLOW",
+          params_hash: sealed_fingerprint("list_company_tasks")
         })
 
       # A receipt is writable without either unevaluated field, so recording
@@ -1979,7 +2562,7 @@ defmodule Ankole.W3.ActionAssuranceTest do
     end
   end
 
-  # ─── B-6 referential and index contract ──────────────────────────────────
+  # â”€â”€â”€ B-6 referential and index contract â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "B6 receipt referential contract" do
     test "approval_uid is a restrictive foreign key to approvals.uid" do
@@ -2016,7 +2599,8 @@ defmodule Ankole.W3.ActionAssuranceTest do
           risk_class: "ROUTINE",
           authz_decision: "ALLOW",
           approval_uid: "w3-b6-no-such-approval",
-          approval_independent: true
+          approval_independent: true,
+          params_hash: sealed_fingerprint("list_company_tasks")
         })
 
       assert changeset.valid?
@@ -2037,8 +2621,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       # A foreign key permits NULL, so "no Approval presented" stays writable.
@@ -2062,9 +2650,14 @@ defmodule Ankole.W3.ActionAssuranceTest do
         })
 
       assert {:error, :approval_invalid} =
-               ActionAssurance.assure(
-                 Ankole.Repo, company.uid, holder.uid, "cancel_task",
-                 "workspace:default", cap.uid, approval_uid: "w3-b6-missing-approval"
+               assure(
+                 Ankole.Repo,
+                 company.uid,
+                 holder.uid,
+                 "cancel_task",
+                 "workspace:default",
+                 cap.uid,
+                 approval_uid: "w3-b6-missing-approval"
                )
     end
 
@@ -2095,7 +2688,8 @@ defmodule Ankole.W3.ActionAssuranceTest do
           company_uid: "c",
           risk_class: "ROUTINE",
           authz_decision: "ALLOW",
-          approval_uid: "a"
+          approval_uid: "a",
+          params_hash: sealed_fingerprint("list_company_tasks")
         })
 
       constraints = constraints_on(changeset)
@@ -2119,7 +2713,8 @@ defmodule Ankole.W3.ActionAssuranceTest do
           principal_uid: holder.uid,
           company_uid: company.uid,
           risk_class: "ROUTINE",
-          authz_decision: "ALLOW"
+          authz_decision: "ALLOW",
+          params_hash: sealed_fingerprint("list_company_tasks")
         })
 
       assert {:ok, row} = Repo.insert(changeset)
@@ -2128,10 +2723,11 @@ defmodule Ankole.W3.ActionAssuranceTest do
       assert is_nil(row.approval_independent)
       assert is_nil(row.precondition_status)
       assert is_nil(row.execution_failed)
+      assert row.params_hash == sealed_fingerprint("list_company_tasks")
     end
   end
 
-  # ─── B-7 / FIX-14 postcondition and execution truthfulness ────────────────
+  # â”€â”€â”€ B-7 / FIX-14 postcondition and execution truthfulness â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   describe "B7 postcondition truthfulness" do
     setup do
@@ -2143,8 +2739,12 @@ defmodule Ankole.W3.ActionAssuranceTest do
       grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
       {:ok, context} =
-        ActionAssurance.assure(
-          Ankole.Repo, company.uid, holder.uid, "list_company_tasks", "workspace:default"
+        assure(
+          Ankole.Repo,
+          company.uid,
+          holder.uid,
+          "list_company_tasks",
+          "workspace:default"
         )
 
       %{company: company, holder: holder, context: context}
@@ -2157,7 +2757,10 @@ defmodule Ankole.W3.ActionAssuranceTest do
       # The caller asserts success. That cannot manufacture verification.
       assert {:ok, receipt} =
                ActionAssurance.finalize_assurance(
-                 Ankole.Repo, context, true, %{"items_count" => 42}
+                 Ankole.Repo,
+                 context,
+                 true,
+                 %{"items_count" => 42}
                )
 
       assert is_nil(receipt.postcondition_verified)
@@ -2234,13 +2837,15 @@ defmodule Ankole.W3.ActionAssuranceTest do
   defp finalize_with_expected(expected) do
     %{principal: owner} = human_fixture()
     company = company_fixture(owner.uid)
-    %{principal: holder} = human_fixture(uid: "w3-b7-expected-#{System.unique_integer([:positive])}")
+
+    %{principal: holder} =
+      human_fixture(uid: "w3-b7-expected-#{System.unique_integer([:positive])}")
 
     {:ok, _} = MembershipStore.add_member(Ankole.Repo, company.uid, holder.uid)
     grant_fixture(holder.uid, company.uid, "workspace:**", "list_company_tasks")
 
     {:ok, context} =
-      ActionAssurance.assure(
+      assure(
         Ankole.Repo,
         company.uid,
         holder.uid,
