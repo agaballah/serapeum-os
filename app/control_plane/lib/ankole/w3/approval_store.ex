@@ -78,7 +78,23 @@ defmodule Ankole.W3.ApprovalStore do
     end
   end
 
-  defp fetch_approval_locked(repo, company_uid, approval_uid) do
+  @doc """
+  Fetches one Approval by UID within a Company scope, acquiring a row-level
+  `SELECT ... FOR UPDATE` lock.
+
+  The caller must own the surrounding transaction. This function does not
+  start one. It is the single row-lock primitive for Approval rows: the
+  lifecycle functions (`approve_approval`, `reject_approval`,
+  `revoke_approval`) use it, and so does any caller that must judge an
+  Approval and act on it inside one transaction.
+
+  Returns `{:ok, approval}` when the row is found and locked, or
+  `{:error, :not_found}` when no Approval matches the UID inside the
+  Company scope.
+  """
+  @spec fetch_approval_for_update(Ecto.Repo.t(), String.t(), String.t()) ::
+          {:ok, Approval.t()} | {:error, :not_found | :company_not_found | :invalid_uid}
+  def fetch_approval_for_update(repo, company_uid, approval_uid) do
     with :ok <- ensure_company_exists(repo, company_uid),
          {:ok, normalized_uid} <- PrincipalKey.normalize(approval_uid) do
       case repo.one(
@@ -108,10 +124,10 @@ defmodule Ankole.W3.ApprovalStore do
   Returns `{:ok, approval}` on success or `{:error, reason}` on failure.
   """
   @spec approve_approval(Ecto.Repo.t(), String.t(), String.t(), String.t()) ::
-           {:ok, Approval.t()} | {:error, term()}
+          {:ok, Approval.t()} | {:error, term()}
   def approve_approval(repo, company_uid, approval_uid, approver_uid) do
     repo.transact(fn ->
-      with {:ok, approval} <- fetch_approval_locked(repo, company_uid, approval_uid),
+      with {:ok, approval} <- fetch_approval_for_update(repo, company_uid, approval_uid),
            :ok <- can_approve?(approval),
            {:ok, normalized_approver} <- PrincipalKey.normalize(approver_uid),
            %Principal{status: :active} <- repo.get(Principal, normalized_approver),
@@ -131,15 +147,15 @@ defmodule Ankole.W3.ApprovalStore do
           {:error, _} = err -> err
         end
       else
-              {:error, :not_found} -> {:error, :not_found}
-              {:error, :already_approved} -> {:error, :already_approved}
-              {:error, :already_terminal} -> {:error, :already_terminal}
-              {:error, :principal_not_found} -> {:error, :principal_not_found}
-              {:error, :principal_disabled} -> {:error, :principal_disabled}
-              {:error, :self_approval} -> {:error, :self_approval}
-              {:error, :principal_not_in_company} -> {:error, :principal_not_in_company}
-              nil -> {:error, :not_found}
-            end
+        {:error, :not_found} -> {:error, :not_found}
+        {:error, :already_approved} -> {:error, :already_approved}
+        {:error, :already_terminal} -> {:error, :already_terminal}
+        {:error, :principal_not_found} -> {:error, :principal_not_found}
+        {:error, :principal_disabled} -> {:error, :principal_disabled}
+        {:error, :self_approval} -> {:error, :self_approval}
+        {:error, :principal_not_in_company} -> {:error, :principal_not_in_company}
+        nil -> {:error, :not_found}
+      end
     end)
   end
 
@@ -150,7 +166,7 @@ defmodule Ankole.W3.ApprovalStore do
           {:ok, Approval.t()} | {:error, term()}
   def reject_approval(repo, company_uid, approval_uid, approver_uid) do
     repo.transact(fn ->
-      with {:ok, approval} <- fetch_approval_locked(repo, company_uid, approval_uid),
+      with {:ok, approval} <- fetch_approval_for_update(repo, company_uid, approval_uid),
            :ok <- can_reject?(approval),
            {:ok, normalized_approver} <- PrincipalKey.normalize(approver_uid),
            %Principal{status: :active} <- repo.get(Principal, normalized_approver),
@@ -180,7 +196,7 @@ defmodule Ankole.W3.ApprovalStore do
           {:ok, Approval.t()} | {:error, term()}
   def revoke_approval(repo, company_uid, approval_uid, revoker_uid) do
     repo.transact(fn ->
-      with {:ok, approval} <- fetch_approval_locked(repo, company_uid, approval_uid),
+      with {:ok, approval} <- fetch_approval_for_update(repo, company_uid, approval_uid),
            :ok <- can_revoke?(approval),
            {:ok, normalized_revoker} <- PrincipalKey.normalize(revoker_uid),
            %Principal{status: :active} <- repo.get(Principal, normalized_revoker),
@@ -205,7 +221,56 @@ defmodule Ankole.W3.ApprovalStore do
     end)
   end
 
-@doc """
+  @doc """
+  Validates an already-fetched Approval without performing a second database
+  read.
+
+  The caller is responsible for acquiring the row lock first, typically through
+  `fetch_approval_for_update/3` inside the same transaction. This function
+  evaluates every assurance-relevant semantic that `validate_for_assurance/6`
+  evaluates, over the Approval row it is handed: Company identity, approved
+  status, requester identity, action, resource, risk class, approver
+  independence, expiry, and revocation / terminal state.
+
+  Expiry is evaluated dynamically against the current time at validation time.
+  No database transition is introduced: an Approval is never marked `expired`
+  by this function.
+
+  Returns the same error vocabulary as `validate_for_assurance/6`.
+  """
+  @spec validate_prefetched_approval(Approval.t(), map()) ::
+          :ok | {:error, atom()}
+  def validate_prefetched_approval(approval, expected) when is_map(expected) do
+    company_uid = Map.get(expected, :company_uid)
+    requester_uid = Map.get(expected, :requester_uid)
+    action = Map.get(expected, :action)
+    resource = Map.get(expected, :resource)
+    expected_risk_class = Map.get(expected, :risk_class)
+
+    with :ok <- check_company_matches(approval, company_uid),
+         :ok <- check_approved(approval),
+         :ok <- check_not_expired(approval),
+         :ok <- check_not_revoked(approval),
+         :ok <- check_requester_matches(approval, requester_uid),
+         :ok <- check_action_match(approval, action),
+         :ok <- check_resource_match(approval, resource),
+         :ok <- check_risk_class_match(approval, expected_risk_class),
+         :ok <- check_independent_approver(approval) do
+      :ok
+    else
+      {:error, :company_mismatch} -> {:error, :approval_company_mismatch}
+      {:error, :not_approved} -> {:error, :approval_not_approved}
+      {:error, :expired} -> {:error, :approval_expired}
+      {:error, :revoked} -> {:error, :approval_revoked}
+      {:error, :requester_mismatch} -> {:error, :approval_requester_mismatch}
+      {:error, :action_mismatch} -> {:error, :approval_action_mismatch}
+      {:error, :resource_mismatch} -> {:error, :approval_resource_mismatch}
+      {:error, :risk_class_mismatch} -> {:error, :approval_risk_class_mismatch}
+      {:error, :self_approval} -> {:error, :approval_self_approval}
+    end
+  end
+
+  @doc """
   Validates an Approval for use in Action Assurance.
 
   This is the function P5 calls via `check_approval_independence` to verify
@@ -222,28 +287,43 @@ defmodule Ankole.W3.ApprovalStore do
   - The approval's action matches the proposed action (when provided)
   - The approval's resource matches the proposed resource (when provided)
   - The approval's risk class matches the recomputed risk class (when provided)
+
+  This function fetches the Approval normally and then delegates to
+  `validate_prefetched_approval/2`, so there is a single semantic validation
+  implementation. It does not acquire a row lock; callers that need
+  transactional serialization must use `fetch_approval_for_update/3`.
   """
-  @spec validate_for_assurance(Ecto.Repo.t(), String.t(), String.t(), String.t(), String.t() | nil, String.t() | nil, String.t() | nil) ::
+  @spec validate_for_assurance(
+          Ecto.Repo.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil,
+          String.t() | nil,
+          String.t() | nil
+        ) ::
           :ok | {:error, atom()}
-  def validate_for_assurance(repo, company_uid, approval_uid, requester_uid, action \\ nil, resource \\ nil, expected_risk_class \\ nil) do
-    with {:ok, approval} <- fetch_approval(repo, company_uid, approval_uid),
-         :ok <- check_approved(approval),
-         :ok <- check_not_expired(approval),
-         :ok <- check_not_revoked(approval),
-         :ok <- check_requester_matches(approval, requester_uid),
-         :ok <- check_action_match(approval, action),
-         :ok <- check_resource_match(approval, resource),
-         :ok <- check_risk_class_match(approval, expected_risk_class) do
-      :ok
+  def validate_for_assurance(
+        repo,
+        company_uid,
+        approval_uid,
+        requester_uid,
+        action \\ nil,
+        resource \\ nil,
+        expected_risk_class \\ nil
+      ) do
+    with {:ok, approval} <- fetch_approval(repo, company_uid, approval_uid) do
+      validate_prefetched_approval(approval, %{
+        company_uid: company_uid,
+        requester_uid: requester_uid,
+        action: action,
+        resource: resource,
+        risk_class: expected_risk_class
+      })
     else
+      # `:company_not_found` from `fetch_approval/3` propagates unchanged,
+      # matching the pre-existing behavior of this function.
       {:error, :not_found} -> {:error, :approval_not_found}
-      {:error, :not_approved} -> {:error, :approval_not_approved}
-      {:error, :expired} -> {:error, :approval_expired}
-      {:error, :revoked} -> {:error, :approval_revoked}
-      {:error, :requester_mismatch} -> {:error, :approval_requester_mismatch}
-      {:error, :action_mismatch} -> {:error, :approval_action_mismatch}
-      {:error, :resource_mismatch} -> {:error, :approval_resource_mismatch}
-      {:error, :risk_class_mismatch} -> {:error, :approval_risk_class_mismatch}
     end
   end
 
@@ -300,13 +380,15 @@ defmodule Ankole.W3.ApprovalStore do
     end
   end
 
-  defp can_approve?(%Approval{status: status}) when status in ~w(approved rejected expired revoked) do
+  defp can_approve?(%Approval{status: status})
+       when status in ~w(approved rejected expired revoked) do
     {:error, :already_terminal}
   end
 
   defp can_approve?(_), do: :ok
 
-  defp can_reject?(%Approval{status: status}) when status in ~w(approved rejected expired revoked) do
+  defp can_reject?(%Approval{status: status})
+       when status in ~w(approved rejected expired revoked) do
     {:error, :already_terminal}
   end
 
@@ -319,14 +401,32 @@ defmodule Ankole.W3.ApprovalStore do
   defp can_revoke?(_), do: :ok
 
   defp ensure_independent_approver(%Approval{requester_uid: req_uid}, approver_uid)
-        when req_uid == approver_uid, do: {:error, :self_approval}
+       when req_uid == approver_uid, do: {:error, :self_approval}
+
   defp ensure_independent_approver(_approval, _approver_uid), do: :ok
+
+  # MA-06 §20 independence re-checked at validation time. An Approval whose
+  # stored approver is the same Principal as its requester was never reachable
+  # through `approve_approval/4` (it rejects there), but the check is repeated
+  # here so a prefetched row cannot be validated as independent authority.
+  defp check_independent_approver(%Approval{requester_uid: req_uid, approver_uid: approver_uid})
+       when is_binary(req_uid) and is_binary(approver_uid) and req_uid == approver_uid,
+       do: {:error, :self_approval}
+
+  defp check_independent_approver(_approval), do: :ok
+
+  defp check_company_matches(%Approval{company_uid: company_uid}, company_uid)
+       when is_binary(company_uid),
+       do: :ok
+
+  defp check_company_matches(_approval, _company_uid), do: {:error, :company_mismatch}
 
   defp check_approved(%Approval{status: "approved"}), do: :ok
   defp check_approved(%Approval{status: "revoked"}), do: {:error, :revoked}
   defp check_approved(_), do: {:error, :not_approved}
 
   defp check_not_expired(%Approval{expires_at: nil}), do: :ok
+
   defp check_not_expired(%Approval{expires_at: expires_at}) do
     case DateTime.compare(expires_at, DateTime.utc_now()) do
       :gt -> :ok
@@ -349,6 +449,7 @@ defmodule Ankole.W3.ApprovalStore do
   defp check_resource_match(_, _), do: {:error, :resource_mismatch}
 
   defp check_risk_class_match(_approval, nil), do: :ok
+
   defp check_risk_class_match(%Approval{risk_class: risk_class}, expected_risk) do
     if risk_class == expected_risk do
       :ok
