@@ -9,8 +9,16 @@ defmodule Ankole.W3.CapabilityStore do
 
   This layer performs no authorization evaluation. It does not issue
   capabilities automatically, and has no dependency on W2 review records
-  or any later W3 package. Lifecycle transitions (revoke, expire, consume)
-  are provided here; attenuation and validation are in CapabilityService.
+  or any later W3 package. The revoke and expire transitions are provided
+  here, together with the row lock they run under; attenuation and
+  validation are in CapabilityService.
+
+  Every lifecycle transition runs through `fetch_capability_for_update/3`, so
+  the first transaction to take the Capability row lock decides the legal next
+  state and every later transaction reads the committed result and fails closed.
+  `with_capability_lock/4` owns that transaction for the public entrypoints,
+  and `revoke_locked/2` and `expire_locked/2` hold the single state machine
+  that both of them share.
   """
 
   import Ecto.Query
@@ -95,10 +103,10 @@ defmodule Ankole.W3.CapabilityStore do
          {:ok, normalized_uid} <- PrincipalKey.normalize(capability_uid) do
       case repo.one(
              from capability in Capability,
-             where:
-               capability.uid == ^normalized_uid and
-                 capability.company_uid == ^company_uid,
-             lock: "FOR UPDATE"
+               where:
+                 capability.uid == ^normalized_uid and
+                   capability.company_uid == ^company_uid,
+               lock: "FOR UPDATE"
            ) do
         %Capability{} = capability -> {:ok, capability}
         nil -> {:error, :not_found}
@@ -146,51 +154,96 @@ defmodule Ankole.W3.CapabilityStore do
   end
 
   @doc """
-  Revokes one Capability within its Company.
+  Runs `fun` with one Capability row locked for the whole of one transaction.
 
-  Sets `status` to `:revoked` and records the revocation timestamp.
-  The revoker must be an active member of the same Company.
-  Revocation is irreversible. A revoked Capability fails all validation.
+  The row is locked with `fetch_capability_for_update/3` before `fun` runs, so
+  the first transaction to take the lock decides the legal next state and every
+  later transaction reads the committed result. When the caller already owns a
+  transaction, that transaction is used, so this never nests a transaction or a
+  savepoint.
+
+  `fun` receives the transaction repo and the locked Capability. It must not
+  open a transaction and must not take the same lock again.
   """
-  @spec revoke_capability(Ecto.Repo.t(), String.t(), String.t(), String.t()) ::
-          {:ok, Capability.t()} | {:error, term()}
-  def revoke_capability(repo, company_uid, capability_uid, revoker_uid) do
-    with {:ok, capability} <- fetch_capability(repo, company_uid, capability_uid),
-         :ok <- assert_active_or_revoked(capability),
-         {:ok, normalized_revoker} <- PrincipalKey.normalize(revoker_uid),
-         %Principal{status: :active} <- repo.get(Principal, normalized_revoker),
-         true <- MembershipStore.member?(repo, company_uid, normalized_revoker) do
-      now = DateTime.utc_now()
-
-      changeset =
-        capability
-        |> Ecto.Changeset.change()
-        |> Ecto.Changeset.put_change(:status, :revoked)
-        |> Ecto.Changeset.put_change(:revoked_at, now)
-
-      case repo.update(changeset) do
-        {:ok, updated} -> {:ok, updated}
-        {:error, _} = err -> err
+  @spec with_capability_lock(
+          Ecto.Repo.t(),
+          String.t(),
+          String.t(),
+          (Ecto.Repo.t(), Capability.t() -> term())
+        ) :: term()
+  def with_capability_lock(repo, company_uid, capability_uid, fun)
+      when is_function(fun, 2) do
+    work = fn tx ->
+      case fetch_capability_for_update(tx, company_uid, capability_uid) do
+        {:ok, capability} -> fun.(tx, capability)
+        {:error, _} = error -> error
       end
+    end
+
+    if repo.in_transaction?() do
+      work.(repo)
     else
-      {:error, :not_found} -> {:error, :not_found}
-      nil -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
-      false -> {:error, :principal_not_in_company}
+      repo.transact(fn tx -> work.(tx) end)
     end
   end
 
   @doc """
-  Expires one Capability within its Company.
+  Revokes one Capability the caller already holds locked.
 
-  Sets `status` to `:expired`. Idempotent — calling on an already-expired
-  Capability returns the existing record.
+  This is the single revoke state machine. `active` becomes `revoked` and the
+  revocation timestamp is recorded. A terminal state fails closed with the
+  reason that state already carries, and a lifecycle state that is not
+  operational fails closed with `:invalid_state`.
+
+  It opens no transaction and takes no lock, so the caller's transaction must
+  already hold the row lock, normally through `with_capability_lock/4`.
   """
-  @spec expire_capability(Ecto.Repo.t(), String.t(), String.t()) ::
-          {:ok, Capability.t()} | {:error, term()}
-  def expire_capability(repo, company_uid, capability_uid) do
-    case fetch_capability(repo, company_uid, capability_uid) do
-      {:ok, %Capability{status: :active} = capability} ->
+  @spec revoke_locked(Ecto.Repo.t(), Capability.t()) ::
+          {:ok, Capability.t()} | {:error, atom()}
+  def revoke_locked(repo, %Capability{} = capability) do
+    case capability.status do
+      :active ->
+        changeset =
+          capability
+          |> Ecto.Changeset.change()
+          |> Ecto.Changeset.put_change(:status, :revoked)
+          |> Ecto.Changeset.put_change(:revoked_at, DateTime.utc_now())
+
+        case repo.update(changeset) do
+          {:ok, updated} -> {:ok, updated}
+          {:error, _} = error -> error
+        end
+
+      :revoked ->
+        {:error, :already_revoked}
+
+      :consumed ->
+        {:error, :already_consumed}
+
+      :expired ->
+        {:error, :already_expired}
+
+      _state ->
+        {:error, :invalid_state}
+    end
+  end
+
+  @doc """
+  Expires one Capability the caller already holds locked.
+
+  This is the single expiry state machine. `active` becomes `expired`, and any
+  other state fails closed with the reason that state already carries. Expiry
+  records no timestamp, because a Capability carries its lifecycle state in
+  `status` alone.
+
+  It opens no transaction and takes no lock, so the caller's transaction must
+  already hold the row lock, normally through `with_capability_lock/4`.
+  """
+  @spec expire_locked(Ecto.Repo.t(), Capability.t()) ::
+          {:ok, Capability.t()} | {:error, atom()}
+  def expire_locked(repo, %Capability{} = capability) do
+    case capability.status do
+      :active ->
         changeset =
           capability
           |> Ecto.Changeset.change()
@@ -198,18 +251,58 @@ defmodule Ankole.W3.CapabilityStore do
 
         repo.update(changeset)
 
-      {:ok, %Capability{status: :expired}} = result ->
-        result
+      :expired ->
+        {:error, :already_expired}
 
-      {:ok, %Capability{status: :revoked}} ->
-        {:error, :already_revoked}
-
-      {:ok, %Capability{status: :consumed}} ->
+      :consumed ->
         {:error, :already_consumed}
 
-      {:error, :not_found} ->
-        {:error, :not_found}
+      :revoked ->
+        {:error, :already_revoked}
+
+      _state ->
+        {:error, :invalid_state}
     end
+  end
+
+  @doc """
+  Revokes one Capability within its Company.
+
+  The row is locked before the state decision, so the first transaction to take
+  the lock performs the transition and every later one sees the committed
+  result. The revoker must be an active member of the same Company.
+  Revocation is irreversible.
+  """
+  @spec revoke_capability(Ecto.Repo.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Capability.t()} | {:error, term()}
+  def revoke_capability(repo, company_uid, capability_uid, revoker_uid) do
+    with_capability_lock(repo, company_uid, capability_uid, fn tx, capability ->
+      with {:ok, normalized_revoker} <- PrincipalKey.normalize(revoker_uid),
+           %Principal{status: :active} <- tx.get(Principal, normalized_revoker),
+           true <- MembershipStore.member?(tx, company_uid, normalized_revoker) do
+        revoke_locked(tx, capability)
+      else
+        false -> {:error, :principal_not_in_company}
+        {:error, reason} -> {:error, reason}
+        nil -> {:error, :not_found}
+      end
+    end)
+  end
+
+  @doc """
+  Expires one Capability within its Company.
+
+  The row is locked before the state decision, so the first transaction to take
+  the lock performs the transition and every later one sees the committed
+  result. An already expired Capability fails closed with `:already_expired`
+  rather than reporting success again.
+  """
+  @spec expire_capability(Ecto.Repo.t(), String.t(), String.t()) ::
+          {:ok, Capability.t()} | {:error, term()}
+  def expire_capability(repo, company_uid, capability_uid) do
+    with_capability_lock(repo, company_uid, capability_uid, fn tx, capability ->
+      expire_locked(tx, capability)
+    end)
   end
 
   # ─── private helpers ────────────────────────────────────────────────────
@@ -260,8 +353,4 @@ defmodule Ankole.W3.CapabilityStore do
       :error -> Map.fetch(attrs, Atom.to_string(key))
     end
   end
-
-  defp assert_active_or_revoked(%Capability{status: :active}), do: :ok
-  defp assert_active_or_revoked(%Capability{status: :revoked}), do: :ok
-  defp assert_active_or_revoked(_), do: {:error, :not_found}
 end

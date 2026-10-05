@@ -100,52 +100,42 @@ defmodule Ankole.W3.CapabilityService do
   @doc """
   Revokes a Capability by UID within a Company.
 
-  The revoker must be an active Company member. Revocation is idempotent:
-  calling revoke on an already-revoked Capability returns `:ok` with the
-  existing record rather than an error.
+  The row is locked before the state decision, so the first transaction to take
+  the lock performs the transition and every later one sees the committed result.
+  The revoker must be an active Company member. Revocation is irreversible: an
+  already revoked Capability fails closed with `:already_revoked`, and a consumed
+  or expired one fails closed with its own reason.
   """
   @spec revoke_capability(Ecto.Repo.t(), String.t(), String.t(), String.t()) ::
           {:ok, Capability.t()} | {:error, term()}
   def revoke_capability(repo, company_uid, capability_uid, revoker_uid) do
-    case CapabilityStore.fetch_capability(repo, company_uid, capability_uid) do
-      {:ok, %Capability{status: :active} = capability} ->
-        case PrincipalKey.normalize(revoker_uid) do
-          {:ok, normalized_revoker} ->
-            case repo.get(Principal, normalized_revoker) do
-              %Principal{status: :active} = _p ->
-                case MembershipStore.member?(repo, company_uid, normalized_revoker) do
-                  true -> do_revoke(repo, capability)
-                  false -> {:error, :principal_not_in_company}
-                end
-              _ -> {:error, :principal_disabled}
-            end
-          {:error, _} -> {:error, :invalid_uid}
-        end
-
-      {:ok, %Capability{status: :revoked}} -> {:error, :already_revoked}
-      {:ok, %Capability{status: :expired}} -> {:error, :already_expired}
-      {:ok, %Capability{status: :consumed}} -> {:error, :already_consumed}
-      {:error, :not_found} -> {:error, :not_found}
-      nil -> {:error, :not_found}
-    end
+    CapabilityStore.with_capability_lock(repo, company_uid, capability_uid, fn tx, capability ->
+      with {:ok, normalized_revoker} <- PrincipalKey.normalize(revoker_uid),
+           %Principal{status: :active} <- tx.get(Principal, normalized_revoker),
+           true <- MembershipStore.member?(tx, company_uid, normalized_revoker) do
+        CapabilityStore.revoke_locked(tx, capability)
+      else
+        false -> {:error, :principal_not_in_company}
+        {:error, _} -> {:error, :invalid_uid}
+        # A Principal that is absent or not active is one condition.
+        _ -> {:error, :principal_disabled}
+      end
+    end)
   end
 
   @doc """
   Expires a Capability by UID within a Company.
 
-  Idempotent: expiring an already-expired Capability returns `:ok`.
+  The row is locked before the state decision, so the first transaction to take
+  the lock performs the transition and every later one sees the committed result.
+  An already expired Capability fails closed with `:already_expired`.
   """
   @spec expire_capability(Ecto.Repo.t(), String.t(), String.t()) ::
           {:ok, Capability.t()} | {:error, term()}
   def expire_capability(repo, company_uid, capability_uid) do
-    case CapabilityStore.fetch_capability(repo, company_uid, capability_uid) do
-      {:ok, %Capability{status: :active} = capability} -> do_expire(repo, capability)
-      {:ok, %Capability{status: :expired}} -> {:error, :already_expired}
-      {:ok, %Capability{status: :revoked}} -> {:error, :already_revoked}
-      {:ok, %Capability{status: :consumed}} -> {:error, :already_consumed}
-      {:error, :not_found} -> {:error, :not_found}
-      nil -> {:error, :not_found}
-    end
+    CapabilityStore.with_capability_lock(repo, company_uid, capability_uid, fn tx, capability ->
+      CapabilityStore.expire_locked(tx, capability)
+    end)
   end
 
   @doc """
@@ -263,17 +253,6 @@ defmodule Ankole.W3.CapabilityService do
     %Capability{}
     |> Capability.changeset(merged)
     |> repo.insert()
-  end
-
-  defp do_revoke(repo, capability) do
-    now = DateTime.utc_now()
-    changeset = Ecto.Changeset.change(capability) |> Ecto.Changeset.put_change(:status, :revoked) |> Ecto.Changeset.put_change(:revoked_at, now)
-    repo.update(changeset)
-  end
-
-  defp do_expire(repo, capability) do
-    changeset = Ecto.Changeset.change(capability) |> Ecto.Changeset.put_change(:status, :expired)
-    repo.update(changeset)
   end
 
   defp check_validation(repo, company_uid, %Capability{} = capability, opts) do

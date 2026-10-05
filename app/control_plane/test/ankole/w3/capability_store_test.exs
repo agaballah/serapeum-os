@@ -891,6 +891,187 @@ defmodule Ankole.W3.CapabilityStoreTest do
     end
   end
 
+  # ─── lifecycle transition semantics ───────────────────────────────────────
+
+  describe "lifecycle transition semantics" do
+    setup do
+      suffix = System.unique_integer([:positive])
+      %{principal: owner} = human_fixture(uid: "lc-owner-#{suffix}")
+      company = company_fixture(owner.uid)
+      %{principal: holder} = human_fixture(uid: "lc-holder-#{suffix}")
+      %{principal: issuer} = human_fixture(uid: "lc-issuer-#{suffix}")
+
+      for uid <- [owner.uid, holder.uid, issuer.uid] do
+        assert {:ok, _membership} = MembershipStore.add_member(Repo, company.uid, uid)
+      end
+
+      %{company: company, holder: holder, issuer: issuer}
+    end
+
+    test "both entrypoints revoke an active Capability and refuse every terminal state",
+         context do
+      for label <- [:store, :service] do
+        capability = capability_in(context, :active)
+
+        assert {:ok, revoked} =
+                 revoke_via(label, context.company.uid, capability.uid, context.issuer.uid)
+
+        assert revoked.status == :revoked
+        assert revoked.revoked_at
+      end
+
+      for {state, reason} <- [
+            {:revoked, :already_revoked},
+            {:consumed, :already_consumed},
+            {:expired, :already_expired}
+          ],
+          label <- [:store, :service] do
+        capability = capability_in(context, state)
+
+        assert revoke_via(label, context.company.uid, capability.uid, context.issuer.uid) ==
+                 {:error, reason}
+
+        # The refused transition left the row exactly as it was.
+        assert {:ok, unchanged} =
+                 CapabilityStore.fetch_capability(Repo, context.company.uid, capability.uid)
+
+        assert unchanged.status == state
+      end
+
+      # `requested` is schema valid but not an operational state, so it fails
+      # closed instead of being treated as absent.
+      for label <- [:store, :service] do
+        capability = capability_in(context, :requested)
+
+        assert revoke_via(label, context.company.uid, capability.uid, context.issuer.uid) ==
+                 {:error, :invalid_state}
+      end
+    end
+
+    test "both entrypoints expire an active Capability and refuse every terminal state",
+         context do
+      for label <- [:store, :service] do
+        capability = capability_in(context, :active)
+
+        assert {:ok, expired} = expire_via(label, context.company.uid, capability.uid)
+        assert expired.status == :expired
+      end
+
+      for {state, reason} <- [
+            {:expired, :already_expired},
+            {:consumed, :already_consumed},
+            {:revoked, :already_revoked}
+          ],
+          label <- [:store, :service] do
+        capability = capability_in(context, state)
+
+        assert expire_via(label, context.company.uid, capability.uid) == {:error, reason}
+
+        assert {:ok, unchanged} =
+                 CapabilityStore.fetch_capability(Repo, context.company.uid, capability.uid)
+
+        assert unchanged.status == state
+      end
+
+      for label <- [:store, :service] do
+        capability = capability_in(context, :authorized)
+
+        assert expire_via(label, context.company.uid, capability.uid) == {:error, :invalid_state}
+      end
+    end
+
+    test "the transition holds the row lock until the caller commits", context do
+      capability = capability_in(context, :active)
+
+      assert {:error, :caller_aborted} =
+               Repo.transact(fn tx ->
+                 assert {:ok, _revoked} =
+                          CapabilityStore.revoke_capability(
+                            tx,
+                            context.company.uid,
+                            capability.uid,
+                            context.issuer.uid
+                          )
+
+                 Repo.rollback(:caller_aborted)
+               end)
+
+      # The caller decided the outcome, so the transition is not in the database.
+      assert {:ok, active} =
+               CapabilityStore.fetch_capability(Repo, context.company.uid, capability.uid)
+
+      assert active.status == :active
+      assert is_nil(active.revoked_at)
+    end
+
+    # Builds one Capability already sitting in `state`. The operational states
+    # are reached through the public lifecycle API, so the fixture itself
+    # proves those transitions. `requested` and `authorized` have no transition,
+    # so they are written directly.
+    defp capability_in(context, state) do
+      uid = "lc-#{state}-#{System.unique_integer([:positive])}"
+
+      capability =
+        capability_fixture(context.company.uid, context.holder.uid, context.issuer.uid, %{
+          uid: uid,
+          status: if(state in [:requested, :authorized, :issued], do: state, else: :active)
+        })
+
+      case state do
+        :active ->
+          capability
+
+        :revoked ->
+          assert {:ok, revoked} =
+                   CapabilityService.revoke_capability(
+                     Repo,
+                     context.company.uid,
+                     uid,
+                     context.issuer.uid
+                   )
+
+          revoked
+
+        :expired ->
+          assert {:ok, expired} =
+                   CapabilityService.expire_capability(Repo, context.company.uid, uid)
+
+          expired
+
+        :consumed ->
+          assert {:ok, consumed} =
+                   Repo.transact(fn tx ->
+                     {:ok, locked} =
+                       CapabilityStore.fetch_capability_for_update(tx, context.company.uid, uid)
+
+                     CapabilityService.consume_locked(tx, locked)
+                   end)
+
+          consumed
+
+        # A schema-valid state that no live transition produces is already in
+        # the state the fixture asks for.
+        _dead ->
+          capability
+      end
+    end
+
+    defp revoke_via(:store, company_uid, capability_uid, revoker_uid) do
+      CapabilityStore.revoke_capability(Repo, company_uid, capability_uid, revoker_uid)
+    end
+
+    defp revoke_via(:service, company_uid, capability_uid, revoker_uid) do
+      CapabilityService.revoke_capability(Repo, company_uid, capability_uid, revoker_uid)
+    end
+
+    defp expire_via(:store, company_uid, capability_uid) do
+      CapabilityStore.expire_capability(Repo, company_uid, capability_uid)
+    end
+
+    defp expire_via(:service, company_uid, capability_uid) do
+      CapabilityService.expire_capability(Repo, company_uid, capability_uid)
+    end
+  end
   end
 
 defmodule Ankole.W3.CapabilityStoreConcurrencyTest do
